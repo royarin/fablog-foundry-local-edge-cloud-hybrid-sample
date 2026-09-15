@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <!--
+      ⚠️ NOT net10.0. Microsoft.AI.Foundry.Local.WinML 1.2.4 ships only for
+      net8.0-windows10.0.18362, so anything referencing it must carry the
+      Windows platform moniker (NU1202 otherwise).
+
+      That constraint is one reason FabLog.Core takes no dependency on the
+      Foundry SDK: Core stays net10.0 and platform-neutral.
+    -->
+    <TargetFramework>net10.0-windows10.0.18362.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FabLog.FabPad</RootNamespace>
+    <!-- Pinned so `-r win-x64` is never needed on the command line (NETSDK1047). -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FabLog.Core\FabLog.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="Microsoft.AI.Foundry.Local.WinML" Version="1.2.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Wpf" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <!--
+    ⚠️ The device holds a cloud SDK and a cloud credential of its own (in this
+    project's gitignored appsettings.Development.json).
+
+    That is deliberate. Brokering everything through the hub would buy the
+    appealing property "no credential on the device" — but if the device's only
+    wire out goes to the hub, then the hub IS the device's route to the cloud
+    however the ledger column is labelled, and `CloudOnly` stops being a posture
+    the device can hold by itself.
+
+    The committed appsettings.json carries "<…>" placeholders only, and
+    T3Options.IsConfigured treats anything starting with '<' as not configured.
+  -->
+
+  <ItemGroup>
+    <None Include="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

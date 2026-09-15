@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FabLog.TrustHub</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FabLog.Core\FabLog.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    The cloud SDK, for the hub's own wire to the vendor. FabPad references it too
+    and holds a credential of its own — deliberately, because brokering the
+    device's cloud calls through this server would make the hub the device's way
+    out. See FabLog.FabPad.csproj for that argument in full.
+
+    ⚠️ Azure.AI.Inference is not published on nuget.org. Azure.AI.OpenAI +
+    Microsoft.Extensions.AI.OpenAI is the working combination, and it surfaces as
+    the same IChatClient.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

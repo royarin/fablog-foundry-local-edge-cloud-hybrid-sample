@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <!--
+    Core and TrustHub only. FabLog.FabPad targets net10.0-windows10.0.18362.0
+    because of the Foundry Local SDK, and its untestable parts are the WPF shell
+    and the vendor adapter — every routing decision lives in FabLog.Core, which
+    is exactly why it was put there.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FabLog.Core\FabLog.Core.csproj" />
+    <ProjectReference Include="..\..\src\FabLog.TrustHub\FabLog.TrustHub.csproj" />
+  </ItemGroup>
+
+  <!--
+    The trend tests assert against the REAL seed corpus, not a fixture: its
+    contents are load-bearing (exactly two ETCH-03 complaints) and a copy would
+    drift away from the file the hub actually loads. CopyToOutputDirectory on a
+    <None> is not transitive across a ProjectReference, so link it explicitly.
+  -->
+  <ItemGroup>
+    <None Include="..\..\src\FabLog.TrustHub\Data\hub-notes.json"
+          Link="Data\hub-notes.json" CopyToOutputDirectory="PreserveNewest" />
+
+    <!--
+      The hub's config, linked so the Category=Live test reads the SAME file the
+      hub reads rather than a second copy that can disagree with it. The glob
+      picks up appsettings.Development.json only if it exists — it is gitignored
+      and holds the only real credential in the system.
+    -->
+    <None Include="..\..\src\FabLog.TrustHub\appsettings*.json"
+          Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FabLog.Core" />
+  </ItemGroup>
+
+</Project>

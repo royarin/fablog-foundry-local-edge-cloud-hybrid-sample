@@ -1,0 +1,66 @@
+### FabLog.TrustHub — every endpoint, for pre-flight and poking by hand.
+### VS Code (REST Client extension) and Visual Studio 2026 both render a
+### "Send request" link above each block below. The same calls as the curl
+### commands in SETUP.md, with less to retype.
+###
+### ⚠️ https, matching TrustHub's Program.cs and launchSettings.json.
+### Requires the ASP.NET Core dev cert to be trusted once per machine:
+### `dotnet dev-certs https --trust` — see SETUP.md §0.
+
+@baseUrl = https://localhost:5100
+
+### Pre-flight — expect notes:12, seeded:12, cloudConfigured:true
+GET {{baseUrl}}/health
+
+### Everything the hub is holding — diagnostics only
+GET {{baseUrl}}/notes
+
+### Every submitted shift report
+GET {{baseUrl}}/reports
+
+### Back to the seed corpus alone — 12 notes, 0 reports
+POST {{baseUrl}}/reset
+
+### Push a note directly, bypassing FabPad — handy for seeding a scenario
+### without going through the UI. Mirrors what HubClient.SyncAsync posts.
+POST {{baseUrl}}/sync
+Content-Type: application/json
+
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "author": "K. Nagy",
+  "shift": "Night 2026-09-14",
+  "toolId": "ETCH-03",
+  "chamber": "B",
+  "metric": "uniformity",
+  "severity": "Escalate",
+  "text": "ETCH-03 chamber B uniformity measured 94.2% on recipe RX-7 with a 4.5s ramp, which is off spec.",
+  "at": "2026-09-14T22:10:00Z",
+  "deviceId": "PAD-07",
+  "cleanroom": "CR-2",
+  "tags": ["excursion", "follow-up"],
+  "raw": "etch03 chmbr B unif 94.2% recipe RX-7 ramp 4.5s - off spec"
+}
+
+### Submit a finished shift report directly, bypassing FabPad
+POST {{baseUrl}}/report
+Content-Type: application/json
+
+{
+  "author": "K. Nagy",
+  "shift": "Night 2026-09-14",
+  "deviceId": "PAD-07",
+  "cleanroom": "CR-2",
+  "compiledAt": "2026-09-14T23:00:00Z",
+  "noteCount": 4,
+  "cloudUsed": true,
+  "text": "Shift summary — four notes, all nominal or already actioned."
+}
+
+### The fleet-wide question without the browser — same call FabDesk's "Ask" button makes
+POST {{baseUrl}}/query
+Content-Type: application/json
+
+{
+  "question": "anything odd about ETCH-03 today?"
+}

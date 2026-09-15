@@ -1,0 +1,114 @@
+/* Two rules: big, and high contrast. Nothing here is decoration. */
+:root {
+    --bg: #12141a;
+    --panel: #1b1f28;
+    --line: #2c3240;
+    --text: #e8ecf4;
+    --dim: #8b93a7;
+    --escalate: #ff6b5e;
+    --watch: #f5b74b;
+    --routine: #5ad18d;
+    --masked: #7fd6ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.55 "Segoe UI", system-ui, sans-serif;
+}
+
+.desk { max-width: 1080px; margin: 0 auto; padding: 28px 32px 60px; }
+
+header { display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+header h1 { margin: 0; font-size: 30px; letter-spacing: -0.4px; }
+header .zone { color: var(--dim); font-size: 15px; }
+header .corpus { margin-left: auto; color: var(--dim); font-size: 15px; }
+
+h2 { font-size: 16px; font-weight: 600; color: var(--dim); margin: 30px 0 10px; text-transform: uppercase; letter-spacing: 0.6px; }
+
+.ask { display: flex; gap: 10px; margin: 26px 0; }
+.ask input {
+    flex: 1; padding: 15px 18px; font-size: 19px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+}
+.ask input:focus { outline: 2px solid #4c7dff; border-color: transparent; }
+.ask button {
+    padding: 0 30px; font-size: 18px; font-weight: 600;
+    background: #4c7dff; color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+}
+.ask button:disabled { background: var(--line); color: var(--dim); cursor: default; }
+
+.finding { background: var(--panel); border-left: 5px solid var(--routine); border-radius: 8px; padding: 20px 24px; }
+.finding.watch { border-left-color: var(--watch); }
+.finding.escalate { border-left-color: var(--escalate); }
+.finding .verdict { font-size: 15px; font-weight: 700; letter-spacing: 1.2px; color: var(--routine); }
+.finding.watch .verdict { color: var(--watch); }
+.finding.escalate .verdict { color: var(--escalate); }
+.finding .sentence { font-size: 22px; line-height: 1.4; margin: 12px 0 16px; }
+.finding .counts { display: flex; gap: 24px; color: var(--dim); font-size: 15px; }
+.finding .counts b { color: var(--text); font-size: 18px; }
+
+table.sources { width: 100%; border-collapse: collapse; font-size: 16px; }
+table.sources th { text-align: left; color: var(--dim); font-weight: 600; font-size: 13px; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); }
+table.sources td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+/* The real notes the supervisor reads. They work in this building, inside the
+   airgap, so they get the full text — recipe names, yield figures, everything.
+   Set in the body font on purpose: it is prose written by a person. */
+td.text { color: var(--text); line-height: 1.5; }
+
+/* Severity, in FabPad's vocabulary. Same three class names and the same three
+   colours — TrustHub's --routine/--watch/--escalate are byte-identical to
+   FabPad's --safe/--watch/--exposed — so one note reads the same on the handheld
+   and on the supervisor's screen. The variables were already here; only the
+   classes were missing. A dot is not a column: it costs the Note text nothing. */
+.sev-routine { color: var(--routine); }
+.sev-watch { color: var(--watch); }
+.sev-escalate { color: var(--escalate); font-weight: 700; }
+th.sev, td.sev { width: 1px; padding-right: 10px; }
+
+/* Local time, monospaced so a newest-first list scans straight down. */
+td.when { font-family: "Cascadia Mono", Consolas, monospace; font-size: 14px; white-space: nowrap; }
+
+/* The technician's own shorthand, kept beside the cleaned sentence. This had no
+   rule at all, so it ran on as a second sentence in the same colour and read as
+   the note printed twice. It never shows on the seed (no `raw` in the seed
+   file) — only on notes synced from a device, which are now the rows at the top. */
+span.raw { display: block; margin-top: 3px; color: var(--dim); font-size: 14px; }
+span.raw::before { content: "typed: "; }
+
+/* ── 🔒 wall 2, on screen ──────────────────────────────────────────────────
+   Everything the vendor received, rendered directly beneath the notes it never
+   saw. Monospace and column-aligned so the eye reads it as DATA rather than as
+   writing — which is exactly the distinction being made. The vendor wrote that
+   sentence; this block is everything it was given. */
+pre.digest {
+    margin: 0; padding: 16px 18px; background: #0d0f14;
+    border: 1px solid var(--line); border-left: 5px solid var(--masked); border-radius: 8px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; line-height: 1.7;
+    color: var(--masked); white-space: pre; overflow-x: auto;
+}
+
+/* Kept for the legacy masked-payload styling shared with FabPad's vocabulary. */
+.masked { font-family: "Cascadia Mono", Consolas, monospace; font-size: 15px; }
+td.masked { color: var(--text); }
+
+/* The browse section — collapsed by default, plain content underneath. It
+   borrows table.sources' styling rather than inventing a second table look, so
+   opening it reads as "more of the same data", not a new screen. */
+details.browse { margin: 22px 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px 20px; }
+details.browse summary { cursor: pointer; padding: 12px 0; color: var(--dim); font-size: 15px; }
+details.browse summary:hover { color: var(--text); }
+details.browse h3 { font-size: 14px; font-weight: 600; color: var(--dim); margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+ul.chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; padding: 0; }
+ul.chips li { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 5px 14px; font-size: 14px; }
+
+.dim, .muted { color: var(--dim); }
+.footnote { color: var(--dim); font-size: 14px; margin-top: 18px; }
+.error { background: #2a1a1a; border-left: 5px solid var(--escalate); border-radius: 8px; padding: 16px 20px; color: #ffd9d5; }
+
+#blazor-error-ui { display: none; }

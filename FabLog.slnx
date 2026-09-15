@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FabLog.Core/FabLog.Core.csproj" />
+    <Project Path="src/FabLog.FabPad/FabLog.FabPad.csproj" />
+    <Project Path="src/FabLog.TrustHub/FabLog.TrustHub.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FabLog.DemoTests/FabLog.DemoTests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="demo.http" />
+  </Folder>
+</Solution>

@@ -1,0 +1,91 @@
+@*
+    🔍 What actually crossed a boundary, in one panel.
+
+    The same panel serves every posture. Under CloudOnly it shows the whole note
+    leaving the building; under Hybrid with fab IP present it shows ⟦R1⟧ leaving
+    instead; under EdgeOnly it shows nothing at all. The difference between those
+    three renders is the difference between the three architectures.
+
+    ⚠️ It renders LedgerEntry.PayloadSent: the literal bytes the Router handed to
+    the hub, not a re-derivation of them from the note. A panel that re-computed
+    what "should" have been sent would be a picture of our intentions, which is
+    exactly the thing an auditor does not want.
+*@
+@if (Result is null)
+{
+    <div class="panel payload empty">
+        <h3>What left this device</h3>
+        <p class="muted">Nothing yet.</p>
+    </div>
+}
+else
+{
+    <div class="panel payload @Tone">
+        <h3>What left this device</h3>
+
+        @if (Result.PayloadSent.Length == 0)
+        {
+            <p class="nothing">✔ <b>Nothing.</b> No bytes crossed either boundary.</p>
+            <p class="muted small">@Result.Reason · @Result.ElapsedMs ms on @Result.Path</p>
+        }
+        else
+        {
+            <pre class="sent">@Highlight(Result.PayloadSent)</pre>
+            <p class="muted small">
+                @Result.PayloadSent.Length bytes → @Result.Path · @Result.Reason
+            </p>
+
+            @if (Result.Note.Spans.Count > 0)
+            {
+                <details>
+                    <summary>@Result.Note.Spans.Count values held back on the device</summary>
+                    <table class="spans">
+                        <tbody>
+                            @foreach (var s in Result.Note.Spans)
+                            {
+                                <tr>
+                                    <td class="ph">@s.Placeholder</td>
+                                    <td class="val">@s.Text</td>
+                                    <td class="kind">@s.Kind</td>
+                                    <td class="src">@s.Source</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <p class="muted small">
+                        This mapping is on the device and nowhere else. The hub cannot
+                        reverse the masking; it was never given the means to.
+                    </p>
+                </details>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public RouteResult? Result { get; set; }
+
+    /// <summary>The masked text as sent, when the caller has it. Unused when nothing left.</summary>
+    [Parameter] public string? Masked { get; set; }
+
+    /// <summary>Red when raw fab IP crossed a wall, green when nothing did, amber when only placeholders did.</summary>
+    string Tone =>
+        Result is null || Result.PayloadSent.Length == 0 ? "safe"
+        : Result.PayloadSent.Contains('⟦') ? "masked"
+        : "exposed";
+
+    /// <summary>
+    /// Splits on the placeholders so they can be coloured — they are the point of the panel.
+    /// <para>
+    /// Public and static so the Shift Report block (Main.razor) can render "what left the
+    /// device" with the exact same highlighting, rather than a second, drifting copy of it.
+    /// </para>
+    /// </summary>
+    public static MarkupString Highlight(string payload)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(payload);
+        var marked = System.Text.RegularExpressions.Regex.Replace(
+            escaped, @"⟦R\d+⟧", m => $"<span class=\"ph\">{m.Value}</span>");
+        return new MarkupString(marked);
+    }
+}

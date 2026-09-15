@@ -1,0 +1,59 @@
+@*
+    The provenance table.
+
+    Nothing here needed building. Every Router path already funnels through one
+    RecordAsync(...) call at the moment it decides, because at that moment
+    the router knows the tier, the model, the reason and the payload. So this
+    table costs one line of code and answers the question a compliance officer
+    would actually ask: not "is it secure?" but "show me what left, and why."
+*@
+<div class="panel ledger">
+    <h3>Provenance ledger <span class="muted small">@Ledger.Entries.Count entries</span></h3>
+
+    @if (Ledger.Entries.Count == 0)
+    {
+        <p class="muted">Nothing logged yet.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr><th>Path</th><th>Model</th><th>Why</th><th class="num">ms</th><th>Left the device</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var e in Ledger.Entries.Reverse())
+                {
+                    <tr>
+                        <td><code>@e.Path</code></td>
+                        <td class="model">@e.Model</td>
+                        <td class="reason">@e.Reason</td>
+                        <td class="num">@e.ElapsedMs</td>
+                        <td>
+                            @if (e.NothingLeftTheDevice)
+                            {
+                                <span class="safe">nothing</span>
+                            }
+                            else if (e.PayloadSent.Contains('⟦'))
+                            {
+                                <span class="masked">masked · @e.PayloadSent.Length B</span>
+                            }
+                            else
+                            {
+                                <span class="exposed">full note · @e.PayloadSent.Length B</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <p class="muted small">
+            @Ledger.Entries.Count(e => e.NothingLeftTheDevice) of @Ledger.Entries.Count
+            operations sent nothing at all.
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Ledger Ledger { get; set; } = null!;
+}

@@ -1,0 +1,191 @@
+/* Big, high contrast, nothing decorative. */
+:root {
+    --bg: #12141a;
+    --panel: #1b1f28;
+    --line: #2c3240;
+    --text: #e8ecf4;
+    --dim: #8b93a7;
+    --safe: #5ad18d;
+    --masked: #7fd6ff;
+    --exposed: #ff6b5e;
+    --watch: #f5b74b;
+    --accent: #4c7dff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 "Segoe UI", system-ui, sans-serif;
+    overflow-y: scroll;
+}
+
+code, pre, .masked, .ph { font-family: "Cascadia Mono", Consolas, monospace; }
+
+.pad { padding: 18px 22px 40px; }
+
+header { display: flex; align-items: baseline; gap: 14px; }
+header h1 { margin: 0; font-size: 26px; letter-spacing: -0.4px; }
+header .who { color: var(--dim); font-size: 14px; }
+header .net { margin-left: auto; font-size: 15px; font-weight: 600; }
+header .net.up { color: var(--safe); }
+header .net.down { color: var(--exposed); }
+header .policy { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+header .policy select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 10px; font-size: 15px;
+}
+
+/* ── 🔌 the airlock switch ─────────────────────────────────────────────────
+   Deliberately the loudest control on the screen. The offline simulation is a
+   toggle you can watch being flipped, not a terminal command taken on trust,
+   so it changes colour hard enough that the app's state is never ambiguous. */
+header .airlock {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 15px; font-weight: 600; padding: 6px 12px;
+    border: 1px solid var(--line); border-radius: 999px; user-select: none;
+}
+header .airlock input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+header .airlock.open { color: var(--safe); border-color: #2b5c42; background: #16241d; }
+header .airlock.shut { color: var(--exposed); border-color: #5e2b27; background: #251715; }
+
+.permitted { margin: 10px 0 18px; color: var(--dim); font-size: 14px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.permitted code { background: var(--panel); border-radius: 4px; padding: 2px 7px; margin-right: 5px; color: var(--text); }
+.permitted .status { color: var(--watch); }
+.permitted .status.err { color: var(--exposed); }
+
+/* ── 📜 the decision strip ─────────────────────────────────────────────────
+   One chip per note, present from the first one — the ledger's columns in
+   miniature, so the full table further down needs no explanation.
+
+   The left border is the same three-colour code as the payload panel, and it
+   is keyed on the PAYLOAD, not the tier (see Main.razor · ChipClass): green =
+   nothing left the device, blue = only the shape left, red = the whole note
+   left. Those three cases are the whole story. */
+.strip {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin: 0 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.chip {
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 4px;
+    border-radius: 6px; padding: 5px 11px; font-size: 13px; color: var(--dim);
+    white-space: nowrap; font-family: "Cascadia Mono", Consolas, monospace;
+}
+.chip b { color: var(--text); font-weight: 700; margin-right: 7px; }
+.chip i { color: var(--dim); font-style: normal; opacity: 0.7; margin-left: 7px; }
+.chip.safe { border-left-color: var(--safe); }
+.chip.masked { border-left-color: var(--masked); }
+.chip.exposed { border-left-color: var(--exposed); }
+.chip.empty {
+    border-left-color: var(--line); font-family: inherit;
+    white-space: normal; font-style: italic; opacity: 0.75;
+}
+
+.badges .tier.t1 { color: var(--safe); }
+.badges .tier.t3 { color: var(--exposed); }
+
+.cols { display: grid; grid-template-columns: 1fr 420px; gap: 22px; align-items: start; }
+
+h2 { font-size: 13px; font-weight: 600; color: var(--dim); margin: 22px 0 8px; text-transform: uppercase; letter-spacing: 0.7px; }
+h3 { font-size: 13px; font-weight: 600; color: var(--dim); margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.7px; }
+
+textarea, input[type=text], input:not([type]) {
+    width: 100%; padding: 12px 14px; font-size: 17px; font-family: inherit;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; resize: vertical;
+}
+textarea:focus, input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+.row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.row .spacer { flex: 1; }
+.row input { flex: 1; }
+
+button {
+    padding: 10px 22px; font-size: 16px; font-weight: 600;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+.check { color: var(--dim); font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.pending { color: var(--watch); font-weight: 600; font-size: 15px; }
+
+/* ── result ───────────────────────────────────────────────────────────── */
+.result { margin-top: 16px; background: var(--panel); border-radius: 8px; padding: 16px 18px; border-left: 4px solid var(--line); }
+.result.failed { border-left-color: var(--exposed); }
+.badges { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--dim); }
+.badges .tier { background: #263043; color: var(--text); border-radius: 5px; padding: 3px 9px; font-weight: 600; font-family: "Cascadia Mono", monospace; }
+.badges .queued { color: var(--watch); }
+.badges .ms { margin-left: auto; }
+.result .output { font-size: 18px; line-height: 1.45; margin: 12px 0 6px; }
+.result .error { color: #ffd9d5; font-size: 17px; margin: 12px 0 0; }
+
+dl.extracted { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 3px 10px; font-size: 14px; margin: 10px 0 0; }
+dl.extracted dt { color: var(--dim); }
+dl.extracted dd { margin: 0; }
+
+.sev-routine { color: var(--safe); }
+.sev-watch { color: var(--watch); }
+.sev-escalate { color: var(--exposed); font-weight: 700; }
+
+.refusal { background: var(--panel); border-left: 4px solid var(--watch); border-radius: 8px; padding: 14px 18px; font-size: 16px; line-height: 1.5; }
+
+ul.notes { list-style: none; margin: 0; padding: 0; font-size: 15px; }
+ul.notes li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 9px; align-items: baseline; }
+ul.notes .t { color: var(--dim); font-family: "Cascadia Mono", monospace; font-size: 13px; }
+ul.notes .sync { margin-left: auto; font-size: 12px; color: var(--dim); }
+ul.notes .sync.pending { color: var(--watch); }
+ul.notes .sync.synced { color: var(--safe); }
+
+/* ── panels ───────────────────────────────────────────────────────────── */
+.panel { background: var(--panel); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+
+/* The payload panel. Its border colour says what crossed: nothing, placeholders,
+   or the whole note. */
+.panel.payload { border-left: 5px solid var(--line); }
+.panel.payload.safe { border-left-color: var(--safe); }
+.panel.payload.masked { border-left-color: var(--masked); }
+.panel.payload.exposed { border-left-color: var(--exposed); }
+
+pre.sent {
+    margin: 0; padding: 13px 15px; background: #0d0f14; border-radius: 6px;
+    font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+}
+.panel.payload.exposed pre.sent { color: #ffcfc9; }
+pre.sent .ph, td.ph { color: var(--masked); font-weight: 700; }
+.nothing { color: var(--safe); font-size: 17px; margin: 0; }
+
+details { margin-top: 12px; }
+summary { color: var(--dim); font-size: 14px; cursor: pointer; }
+table.spans { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+table.spans td { padding: 4px 8px 4px 0; }
+table.spans .val { color: var(--exposed); }
+table.spans .kind, table.spans .src { color: var(--dim); font-size: 13px; }
+
+table.eps { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.eps td { padding: 3px 8px 3px 0; }
+table.eps tr.off { color: var(--dim); }
+table.eps tr.on td:first-child { color: var(--safe); }
+table.eps .failed { color: var(--exposed); font-size: 12px; }
+
+dl.resolved { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 14px; margin: 12px 0 0; }
+dl.resolved dt { color: var(--dim); }
+dl.resolved dd { margin: 0; word-break: break-all; }
+.forced { color: var(--watch); font-size: 14px; margin: 12px 0 0; line-height: 1.45; }
+
+.panel.ledger table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.panel.ledger th { text-align: left; color: var(--dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.panel.ledger td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.panel.ledger .num { text-align: right; color: var(--dim); }
+.panel.ledger .model, .panel.ledger .reason { color: var(--dim); }
+.panel.ledger .safe { color: var(--safe); font-weight: 600; }
+.panel.ledger .masked { color: var(--masked); }
+.panel.ledger .exposed { color: var(--exposed); font-weight: 600; }
+
+.muted { color: var(--dim); }
+.small { font-size: 13px; }
+
+#blazor-error-ui { display: none; }

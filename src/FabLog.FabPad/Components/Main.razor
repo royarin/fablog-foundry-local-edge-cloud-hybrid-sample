@@ -1,0 +1,560 @@
+@*
+    📱 FabPad — the device, in the cleanroom, inside the airgap.
+
+    Everything the device does happens on this screen. The one thing that does not
+    is the fleet-wide trend: it needs every technician's notes, so it lives in
+    TrustHub — a different process, a different zone, a different person.
+*@
+@inject DeviceHost Host
+@implements IDisposable
+
+<div class="pad">
+
+    <header>
+        <h1>FabPad</h1>
+        @* Who, on what, where — the metadata that travels with every note and makes
+           it interpretable hours later, beside everyone else's. *@
+        <span class="who">
+            @Host.Options.Author · @Host.Options.Shift
+            <code class="meta">@Host.Options.DeviceId</code>
+            <code class="meta">@Host.Options.Cleanroom</code>
+        </span>
+
+        @*
+            🚪 The cleanroom door, in one click.
+
+            It is labelled as a POSITION, not a network state — "the technician
+            walked into the cleanroom", never "the network went down". An outage
+            invites "so buy better wifi"; a cleanroom invites nothing, because it
+            is the customer's deliberate design.
+
+            No network adapter is disabled. This flips one bool, read in exactly
+            one place — AirlockHandler, a DelegatingHandler sitting UNDER the Azure
+            SDK and under the hub client. It does not tell the app it is offline;
+            there is no such property for it to set. The Router, the sync path and
+            the log all find out the way every real client does: by failing.
+
+            What the switch does NOT do is the point: there is no "offline" flag in
+            the routing code for it to set. It fails a socket, and everything above
+            it is the real path finding out the hard way.
+        *@
+        <label class="airlock @(Host.Switches.PadOnNetwork ? "open" : "shut")">
+            <input type="checkbox" checked="@Host.Switches.InCleanroom" @onchange="OnDoorChanged" />
+            <span>@(Host.Switches.PadOnNetwork ? "👷 At the bench" : "🚪 In the cleanroom")</span>
+        </label>
+
+        @*
+            The tray light — and it is an OBSERVATION, not a probe.
+
+            Polling a /health endpoint on loopback would survive anything done to
+            the network: the machine could be airgapped and the badge would stay
+            green. This reports how the LAST call to the vendor actually went, and
+            before any calls have been made it says so rather than guessing.
+        *@
+        <span class="net @(Host.Cloud.CloudReachable ? "up" : "down")">
+            @(Host.Cloud.CloudReachable
+                ? "🟢 Vendor reachable"
+                : $"🔴 Vendor unreachable since {Host.Cloud.UnreachableSince?.ToLocalTime():HH:mm:ss}")
+        </span>
+
+        @* Labelled "Deployment policy", not "mode" — in production this is what a
+           fab's compliance officer sets. *@
+        <label class="policy">
+            Deployment policy
+            <select value="@Host.Options.Mode" @onchange="OnModeChanged">
+                @foreach (var m in Enum.GetValues<DemoMode>())
+                {
+                    <option value="@m">@m</option>
+                }
+            </select>
+        </label>
+    </header>
+
+    <div class="permitted">
+        Policy.Allowed =
+        @foreach (var t in Policies.For(Host.Options.Mode).Allowed)
+        {
+            <code>@t</code>
+        }
+        · ProtectIp = <code>@Policies.For(Host.Options.Mode).ProtectIp</code>
+        @if (!Host.Ready)
+        {
+            <span class="status">— @Host.Status</span>
+        }
+        @if (Host.StartupError is not null)
+        {
+            <span class="status err">— @Host.StartupError</span>
+        }
+    </div>
+
+    @*
+        📜 The decision strip — present from the very first note, not revealed at
+        the end.
+
+        A provenance panel that only appears once there is something impressive to
+        show looks assembled after the fact. One chip per note, from the first one
+        onward, means the columns are familiar by the time the full table matters.
+
+        It is also what stays useful when a live call misbehaves: the row says
+        exactly what happened and why.
+    *@
+    <div class="strip">
+        @foreach (var e in Host.Ledger.Entries.TakeLast(6))
+        {
+            <span class="chip @ChipClass(e)">
+                <b>@e.Path</b> @e.Reason <i>@e.ElapsedMs ms</i>
+            </span>
+        }
+        @if (Host.Ledger.Entries.Count == 0)
+        {
+            <span class="chip empty">the decision log fills in as notes are written — every row, every mode</span>
+        }
+    </div>
+
+    <div class="cols">
+        <section class="left">
+
+            @*
+                ⚠️ The placeholder is deliberately about ETCH-06 — a tool that
+                appears nowhere in the Central System's seed.
+
+                It must NOT be the ETCH-03 note. That one is the third complaint in
+                the pattern, and it has to be written INSIDE the cleanroom so it
+                reaches the Central System only when the technician walks out. Write
+                it at the bench and it syncs immediately, the pattern resolves before
+                anything has been held back, and the pending queue stops meaning
+                anything.
+
+                It still carries a recipe name and a yield figure, so the leak lands
+                exactly as hard.
+            *@
+            <h2>Shift note</h2>
+            <textarea @bind="raw" @bind:event="oninput" rows="3" disabled="@(!Host.Ready)"
+                      placeholder="etch06 chmbr A unif 93.8% recipe RX-9 ramp 5.2s - off spec"></textarea>
+            <div class="row">
+                <button class="primary" @onclick="LogAsync" disabled="@(busy || !Host.Ready)">
+                    @(busy ? "…" : "Log note")
+                </button>
+                <label class="check">
+                    <input type="checkbox" @bind="wantPolish" /> ask for cloud-grade prose
+                </label>
+                <span class="spacer"></span>
+
+                @*
+                    📌 ONE COUNTER — notes that have not reached the Central System.
+
+                    It climbs while the technician is in the cleanroom and falls to
+                    zero on its own when she walks out. It is not a queue: it is a
+                    count of notes whose SyncState is Pending, and the notes are the
+                    same ones listed below.
+
+                    ⚠️ There is deliberately NO counter for the cloud, because there
+                    is no deferred cloud work. Deferring a DELIVERY is useful —
+                    nobody is waiting on a note reaching our own server. Deferring an
+                    ANSWER is not: the technician asked Cloud AI a question and is
+                    standing there waiting for it. A reply that turns up twenty
+                    minutes later is worse than an error.
+
+                    The button is a fallback, never the mechanism: DeviceHost retries
+                    within a couple of seconds of the signal returning, with nobody
+                    clicking anything.
+
+                    It is never disabled on a reachability flag — there isn't one to
+                    consult. Press it while sealed and it fails, the notes stay
+                    pending, and that is the correct behaviour to show.
+                *@
+                @if (Host.Notes.PendingCount > 0)
+                {
+                    <span class="pending hub" title="Not yet delivered to the Central System — distance, not policy">
+                        🏢 @Host.Notes.PendingCount awaiting the Central System
+                    </span>
+                    <button @onclick="SyncPendingAsync" disabled="@syncing">
+                        @(syncing ? "syncing…" : "Sync now")
+                    </button>
+                }
+            </div>
+
+            @if (last is not null)
+            {
+                <div class="result @(last.Failed ? "failed" : "")">
+                    <div class="badges">
+                        <span class="tier t@(((int)last.Tier) + 1)">@last.Path</span>
+                        <span class="reason">@last.Reason</span>
+                        <span class="ms">@last.ElapsedMs ms</span>
+                        @* Degraded ≠ failed. The local answer stands; only the prose is missing. *@
+                        @if (last.Degraded) { <span class="queued">cloud unavailable — local result stands</span> }
+                    </div>
+
+                    @if (last.Failed)
+                    {
+                        @* CloudOnly: no local path exists to fall back to, so nothing catches this. *@
+                        <p class="error">@last.Error</p>
+                    }
+                    else
+                    {
+                        @*
+                            ⭐ THE QUALITY TRADE-OFF, AND IT COSTS NOTHING TO SHOW.
+
+                            Edge AI has limits in three dimensions: latency, resource
+                            usage, and ACCURACY. The first two are measured numbers
+                            elsewhere on this screen. This is the third, and both
+                            halves are already on the note after a Hybrid run —
+                            Cleaned is the device's sentence, Polished is the cloud's
+                            prose with the real values restored.
+
+                            Same note, same facts, both correct; one of them reads
+                            like a person wrote it. That is the trade, and the point
+                            is that nobody has to choose between them — only to decide
+                            what is allowed to leave.
+
+                            ⚠️ The Path check below is load-bearing, not decorative.
+                            CloudOnly shares the local path's extraction call, so it
+                            ALSO populates Cleaned — but on the VENDOR tier, since
+                            there is no device model in that posture. Without gating on
+                            Path, this panel would render under CloudOnly too, labelling
+                            the cloud's own extraction as "🧠 On this device
+                            qwen2.5-1.5b…": wrong model, wrong tier. Every Path that ran
+                            local extraction starts with "T1" (EdgeOnly's "T1", Hybrid's
+                            "T1" and "T1→T3"); CloudOnly's is always "T3" or "T3 ✖".
+                        *@
+                        @if (last.Path.StartsWith("T1", StringComparison.Ordinal)
+                             && last.Note.Polished is { Length: > 0 } cloudText
+                             && last.Note.Cleaned is { Length: > 0 } deviceText
+                             && !string.Equals(cloudText, deviceText, StringComparison.Ordinal))
+                        {
+                            <div class="compare">
+                                <div class="side device">
+                                    <h4>🧠 On this device <span class="dim">@ModelShort</span></h4>
+                                    <p class="output">@deviceText</p>
+                                </div>
+                                <div class="side cloud">
+                                    <h4>☁️ Written in the cloud <span class="dim">@Host.Options.T3.Deployment</span></h4>
+                                    <p class="output">@cloudText</p>
+                                </div>
+                            </div>
+                            <p class="footnote">
+                                Both correct. One reads better — and the values in the right-hand
+                                version were restored <b>here</b>, after the cloud wrote it.
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="output">@(last.Note.Polished ?? last.Output)</p>
+                        }
+                        <dl class="extracted">
+                            <dt>tool</dt><dd>@Show(last.Note.ToolId)</dd>
+                            <dt>chamber</dt><dd>@Show(last.Note.Chamber)</dd>
+                            <dt>metric</dt><dd>@Show(last.Note.Metric)</dd>
+                            <dt>value</dt><dd>@Show(last.Note.Value)</dd>
+                            <dt>severity</dt><dd class="sev-@last.Note.Severity.ToString().ToLowerInvariant()">@last.Note.Severity</dd>
+                            <dt>device</dt><dd>@Show(last.Note.DeviceId)</dd>
+                            <dt>cleanroom</dt><dd>@Show(last.Note.Cleanroom)</dd>
+                            <dt>tags</dt>
+                            <dd>
+                                @if (last.Note.ContextTags.Count == 0)
+                                {
+                                    <span>—</span>
+                                }
+                                else
+                                {
+                                    @foreach (var t in last.Note.ContextTags)
+                                    {
+                                        <span class="tag">@t</span>
+                                    }
+                                }
+                            </dd>
+                        </dl>
+                    }
+                </div>
+            }
+
+            <h2>Ask this device</h2>
+            <div class="row">
+                <input @bind="question" @bind:event="oninput" disabled="@(!Host.Ready)"
+                       placeholder="anything odd about ETCH-03 today?" />
+                <button @onclick="AskAsync" disabled="@(!Host.Ready)">Ask</button>
+            </div>
+            @if (answer is not null)
+            {
+                @* The honest refusal — and note it still answers what it CAN. *@
+                <p class="refusal">@answer</p>
+            }
+
+            @*
+                ⭐ THE HYBRID FLOW — and it is deliberately a DIFFERENT JOB.
+
+                Note capture happens inside the cleanroom where there is no
+                connection at all, so it can never show "connected, and choosing not
+                to send". Writing up the shift happens OUTSIDE, at the end, with a
+                perfectly good connection and nothing forcing anyone's hand.
+
+                Within this one artefact:
+                  • the facts table is computed HERE and never leaves
+                  • only a MASKED brief crosses the border
+                  • the prose comes back and is re-inflated HERE
+
+                In the cleanroom the work stayed local because it HAD to. Here it
+                stays local because the policy says so — which is the harder half of
+                the claim to make, and the only place it can be made.
+            *@
+            <h2>End of shift</h2>
+            <div class="row">
+                <button class="primary" @onclick="CompileReportAsync"
+                        disabled="@(compiling || !Host.Ready || Host.Notes.Count == 0)">
+                    @(compiling ? "compiling…" : $"Compile shift report ({Host.Notes.Count} notes)")
+                </button>
+                <label class="check">
+                    <input type="checkbox" @bind="wantNarrative" /> ask the cloud to write it up
+                </label>
+            </div>
+
+            @if (Host.LastReport is { } report)
+            {
+                <div class="report">
+                    <div class="badges">
+                        <span class="tier t1">@(report.CloudUsed ? "device→cloud" : "device only")</span>
+                        <span class="ms">@report.ElapsedMs ms</span>
+                        <span class="reason">@report.NoteCount notes</span>
+                        @if (report.Spans.Count > 0)
+                        {
+                            <span class="queued">@report.Spans.Count masked before it crossed</span>
+                        }
+                        <span class="@(reportSubmitted ? "reason" : "queued")">
+                            @(reportSubmitted ? "submitted + saved locally" : "saved locally — not submitted")
+                        </span>
+                    </div>
+
+                    @if (report.Failed)
+                    {
+                        <p class="error">@report.Error</p>
+                    }
+
+                    @* The facts. Computed on the device, never sent to the vendor. *@
+                    <table class="facts">
+                        <thead>
+                            <tr><th>tool</th><th>chamber</th><th>metric</th><th>value</th><th>severity</th><th>notes</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var f in report.Facts)
+                            {
+                                <tr>
+                                    <td>@f.ToolId</td>
+                                    <td>@Show(f.Chamber)</td>
+                                    <td>@Show(f.Metric)</td>
+                                    <td>@Show(f.Value)</td>
+                                    <td class="sev-@f.Severity.ToString().ToLowerInvariant()">@f.Severity</td>
+                                    <td>@f.NoteCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    @* 🔍 The same "what left this device" panel, for the report rather than
+                       a single note. Without it the report would only ever show its final
+                       restored state, never what actually crossed. Mirrors PayloadPanel
+                       exactly — same Highlight helper, same span table. *@
+                    <div class="panel payload @(report.PayloadSent.Length == 0 ? "safe" : report.PayloadSent.Contains('⟦') ? "masked" : "exposed")">
+                        <h3>What left this device</h3>
+                        @if (report.PayloadSent.Length == 0)
+                        {
+                            <p class="nothing">✔ <b>Nothing.</b> No bytes crossed either boundary.</p>
+                        }
+                        else
+                        {
+                            <pre class="sent">@PayloadPanel.Highlight(report.PayloadSent)</pre>
+                            <p class="muted small">@report.PayloadSent.Length bytes → device→cloud</p>
+
+                            @if (report.Spans.Count > 0)
+                            {
+                                <details>
+                                    <summary>@report.Spans.Count values held back on the device</summary>
+                                    <table class="spans">
+                                        <tbody>
+                                            @foreach (var s in report.Spans)
+                                            {
+                                                <tr>
+                                                    <td class="ph">@s.Placeholder</td>
+                                                    <td class="val">@s.Text</td>
+                                                    <td class="kind">@s.Kind</td>
+                                                    <td class="src">@s.Source</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                    <p class="muted small">
+                                        This mapping is on the device and nowhere else. The hub cannot
+                                        reverse the masking; it was never given the means to.
+                                    </p>
+                                </details>
+                            }
+                        }
+                    </div>
+
+                    <p class="output">@report.Final</p>
+                </div>
+            }
+
+            <h2>This device's notes (@Host.Notes.Count)</h2>
+            <ul class="notes">
+                @foreach (var n in Host.Notes.Notes.OrderByDescending(n => n.At))
+                {
+                    <li>
+                        <span class="sev-@n.Severity.ToString().ToLowerInvariant()">●</span>
+                        <span class="t">@n.At.ToLocalTime().ToString("HH:mm")</span>
+                        @(n.Cleaned ?? n.Raw)
+                        <span class="sync @n.Sync.ToString().ToLowerInvariant()">@n.Sync</span>
+                    </li>
+                }
+            </ul>
+        </section>
+
+        <section class="right">
+            <PayloadPanel Result="last" Masked="@(last is null ? null : Host.Notes.MaskedFor(last.Note.Id))" />
+            <HardwarePanel Probe="Host.Hardware" Options="Host.Options.T1" />
+            <LedgerPanel Ledger="Host.Ledger" />
+        </section>
+    </div>
+</div>
+
+@code {
+    string raw = "";
+    string question = "";
+    string? answer;
+    bool wantPolish = true;
+    bool wantNarrative = true;
+    bool busy;
+    bool syncing;
+    bool compiling;
+    bool reportSubmitted;
+    RouteResult? last;
+
+    protected override void OnInitialized()
+    {
+        Host.Changed += Refresh;
+        Host.Notes.Changed += Refresh;
+    }
+
+    public void Dispose()
+    {
+        Host.Changed -= Refresh;
+        Host.Notes.Changed -= Refresh;
+    }
+
+    void Refresh() => InvokeAsync(StateHasChanged);
+
+    void OnModeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<DemoMode>(e.Value?.ToString(), out var mode)) Host.SetMode(mode);
+    }
+
+    // 🚪 One bool, read in one place, below both SDKs. See AirlockHandler.
+    //    Checked = "in the cleanroom", so the gesture matches the sentence.
+    void OnDoorChanged(ChangeEventArgs e) =>
+        Host.Switches.InCleanroom = e.Value is bool b && b;
+
+    static string Show(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s;
+
+    /// <summary>The resolved model id, trimmed to the part worth reading.</summary>
+    string ModelShort => Host.Hardware.ResolvedModelId is { Length: > 0 } id
+        ? id.Split(':')[0]
+        : Host.Options.T1.ModelAlias;
+
+    // The strip's colour code, and it is keyed on the PAYLOAD, never the tier.
+    //
+    // Tier would be wrong in exactly the case that matters most: a Hybrid note
+    // is recorded against T1 (the device did the work and owns the answer) while
+    // a masked payload crossed the border. Green there would say "nothing left",
+    // which is the one thing the ledger must never say when something did.
+    //
+    // Same three words as the payload panel's border, on purpose — safe, masked,
+    // exposed. One vocabulary across the screen.
+    static string ChipClass(LedgerEntry e) =>
+        e.NothingLeftTheDevice ? "safe"
+        : e.PayloadSent.Contains('⟦') ? "masked"
+        : "exposed";
+
+    async Task LogAsync()
+    {
+        if (busy || Host.Router is null || string.IsNullOrWhiteSpace(raw)) return;
+        busy = true;
+        try
+        {
+            var result = await Host.Router.ProcessAsync(
+                new RouteRequest(
+                    raw.Trim(), Host.Options.Author, wantPolish,
+                    DeviceId: Host.Options.DeviceId,
+                    Cleanroom: Host.Options.Cleanroom),
+                Host.Options.Mode);
+
+            // Keep the masked form exactly as sent — the payload panel renders the
+            // literal string the hub received, never a re-derivation of it.
+            var masked = result.Note.Spans.Count > 0
+                ? Redaction.Mask(result.Note.Raw, result.Note.Spans)
+                : result.Note.Raw;
+
+            Host.Notes.Upsert(result.Note, masked);
+            last = result;
+            if (!result.Failed) raw = "";
+        }
+        finally { busy = false; }
+    }
+
+    // ⭐ The hybrid flow: compile this shift's notes into one submittable report.
+    //
+    // Three of the four steps run on the device — facts, span detection, and the
+    // un-masking at the end. Only a masked brief ever crosses the border, and the
+    // technician keeps a local copy whether or not submission succeeds. That last
+    // part is what makes the failure case survivable instead of lossy.
+    async Task CompileReportAsync()
+    {
+        if (compiling || Host.Reporter is null || Host.Notes.Count == 0) return;
+        compiling = true;
+        try
+        {
+            var report = await Host.Reporter.CompileAsync(
+                Host.Notes.Notes, Host.Options.Mode,
+                Host.Options.Author, Host.Options.Shift,
+                Host.Options.DeviceId, Host.Options.Cleanroom,
+                wantNarrative);
+
+            // The reporter already submitted it (and kept going if that failed).
+            // Keeping the local copy is the last word either way.
+            Host.KeepReport(report);
+            reportSubmitted = report.Submitted;
+        }
+        finally { compiling = false; }
+    }
+
+    // A cross-note question, answered honestly by a device that holds one
+    // technician's notes. Nothing about this is a model limitation.
+    async Task AskAsync()
+    {
+        if (Host.Router is null || string.IsNullOrWhiteSpace(question)) return;
+        await Task.Yield();
+
+        if (DeviceScope.IsCrossNoteQuestion(question))
+        {
+            var tool = Prompts.NormaliseToolId(
+                System.Text.RegularExpressions.Regex.Match(question, @"\b[A-Za-z]{2,6}[\s\-_]?\d{1,3}\b").Value);
+            answer = DeviceScope.Refuse(
+                Host.Notes.Count, Host.Options.Author,
+                tool.Length > 0 ? Host.Notes.Mentions(tool) : 0,
+                tool.Length > 0 ? tool : "that tool");
+        }
+        else
+        {
+            answer = "I can only answer questions about the notes on this device.";
+        }
+    }
+
+    // ⚠️ This button is the FALLBACK, not the mechanism. DeviceHost.PollAsync does
+    // exactly this on its own within a couple of seconds of the signal returning,
+    // with nobody clicking anything.
+    async Task SyncPendingAsync()
+    {
+        if (syncing) return;
+        syncing = true;
+        try { await Host.SyncPendingAsync(); }
+        finally { syncing = false; }
+    }
+}

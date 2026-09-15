@@ -1,0 +1,229 @@
+@*
+    💻 FabDesk — the supervisor's trend screen.
+
+    A different person, on a different screen, in a different zone, who has never
+    been near the cleanroom. That is the whole reason this is a browser tab and
+    not another panel inside FabPad: the window switch *shows* the zone change.
+
+    The collapsed "browse" section below is additive and read-only. An aggregate
+    finding is only trustworthy if the rows behind it can be inspected directly,
+    so the notes/technicians/cleanrooms lists are one click away — without
+    competing with the ask/trend flow, which is the primary path.
+*@
+@page "/"
+@rendermode InteractiveServer
+@inject HubBrain Brain
+
+<div class="desk">
+    <header>
+        <h1>FabDesk</h1>
+        <span class="zone">🏢 Trusted zone · TrustHub</span>
+        <span class="corpus">
+            @Brain.Store.Count notes · @Technicians technicians · @Cleanrooms cleanrooms
+        </span>
+    </header>
+
+    @*
+        Submitted shift reports. Empty until the technician compiles one at the end
+        of the hybrid flow — so when one appears here, the whole round trip has
+        landed: written on the device, masked for the vendor, re-inflated locally,
+        submitted here with its real values in.
+    *@
+    @if (Brain.Store.Reports is { Count: > 0 } reports)
+    {
+        <h2>Shift reports submitted</h2>
+        @foreach (var r in reports)
+        {
+            <div class="report">
+                <div class="counts">
+                    <span><b>@r.Author</b></span>
+                    <span class="dim">@r.Shift</span>
+                    <span class="dim">@r.DeviceId · @r.Cleanroom</span>
+                    <span><b>@r.NoteCount</b> notes</span>
+                    <span class="dim">@(r.CloudUsed ? "narrative written in the cloud" : "written on-device")</span>
+                </div>
+                <p class="text">@r.Text</p>
+            </div>
+        }
+    }
+
+    <div class="ask">
+        <input @bind="question" @bind:event="oninput" @onkeydown="OnKey"
+               placeholder="anything odd about ETCH-03 today?" autofocus />
+        <button @onclick="AskAsync" disabled="@busy">@(busy ? "…" : "Ask")</button>
+    </div>
+
+    @*
+        🔍 Content, not just aggregates. Collapsed by default so it never competes
+        with the ask/trend flow above; open it and it's every row the header's two
+        counters were already summarising, bound straight to Brain.Store (no new
+        query method — same data the counters already read).
+    *@
+    <details class="browse">
+        <summary>Browse the corpus — every note, every technician, every cleanroom</summary>
+
+        <h3>Technicians (@Technicians)</h3>
+        <ul class="chips">
+            @foreach (var author in Brain.Store.All.Select(n => n.Author).Distinct().OrderBy(a => a))
+            {
+                <li>@author</li>
+            }
+        </ul>
+
+        <h3>Cleanrooms (@Cleanrooms)</h3>
+        <ul class="chips">
+            @foreach (var room in Brain.Store.All.Select(n => n.Cleanroom)
+                .Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().OrderBy(c => c))
+            {
+                <li>@room</li>
+            }
+        </ul>
+
+        <h3>All notes (@Brain.Store.Count)</h3>
+        <table class="sources">
+            <thead><tr><th class="sev"></th><th>When</th><th>Who</th><th>Room</th><th>Shift</th><th>Tool</th><th>Note</th></tr></thead>
+            <tbody>
+                @* Newest first — the supervisor's list is a feed, and a note that has
+                   just arrived from a device belongs at the top of it, not buried in the
+                   middle of the seed. Sorted HERE and not in HubStore.All on purpose:
+                   AsDigest(), HubBrain.Related and GET /notes all read All and all want
+                   it chronological. Same shape as the reports list above. *@
+                @foreach (var n in Brain.Store.All.OrderByDescending(n => n.At))
+                {
+                    <tr>
+                        <td class="sev sev-@n.Severity.ToString().ToLowerInvariant()" title="@n.Severity">●</td>
+                        <td class="dim when">@n.At.ToLocalTime().ToString("MM-dd HH:mm")</td>
+                        <td>@n.Author</td>
+                        <td class="dim">@n.Cleanroom</td>
+                        <td class="dim">@n.Shift</td>
+                        <td class="dim">@n.ToolId</td>
+                        <td class="text">
+                            @n.Text
+                            @if (!string.Equals(n.Original, n.Text, StringComparison.Ordinal))
+                            {
+                                <span class="raw" title="As the technician typed it">@n.Original</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </details>
+
+    @if (busy)
+    {
+        <p class="muted">Reasoning over every technician's notes…</p>
+    }
+    else if (error is not null)
+    {
+        <div class="error"><strong>T3 unavailable.</strong> @error</div>
+    }
+    else if (result?.Finding is { } f)
+    {
+        <div class="finding @f.Verdict.ToString().ToLowerInvariant()">
+            <div class="verdict">@Icon(f.Verdict) @f.Verdict.ToString().ToUpperInvariant()</div>
+            <p class="sentence">@f.Finding</p>
+            <div class="counts">
+                <span><b>@f.Mentions</b> mentions</span>
+                <span><b>@f.Technicians</b> technicians</span>
+                <span><b>@f.Shifts</b> shifts</span>
+                <span class="dim">@f.ToolId chamber @f.Chamber</span>
+            </div>
+        </div>
+
+        @*
+            ⚠️ Two things side by side, and the pairing is the point:
+              · what the supervisor sees — the real notes, because they work here
+              · what the vendor saw — the digest, with no note body in it at all
+
+            These rows are NOT "what the cloud saw". The hub is inside the fab, so
+            it holds every note in full; what crossed the border is the block
+            further down.
+
+            The note column shows the CONVERTED sentence — the one the on-device
+            model produced — with the technician's original shorthand underneath
+            it. The cleaned-up version is what gets read; the original is still
+            attached, because you don't throw away what somebody actually wrote.
+        *@
+        <h2>The notes behind it — what the supervisor sees</h2>
+        <table class="sources">
+            <thead><tr><th>When</th><th>Who</th><th>Room</th><th>Shift</th><th>Note</th></tr></thead>
+            <tbody>
+                @* Chronological, deliberately — this table is the evidence behind the
+                   finding, and evidence reads oldest-first. Only the rendered clock
+                   changed (UTC → local, to agree with the browse table above and with
+                   FabPad); the order is HubBrain.Related's and is left exactly as it
+                   was. *@
+                @foreach (var n in result.Sources)
+                {
+                    <tr>
+                        <td class="dim when">@n.At.ToLocalTime().ToString("MM-dd HH:mm")</td>
+                        <td>@n.Author</td>
+                        <td class="dim">@n.Cleanroom</td>
+                        <td class="dim">@n.Shift</td>
+                        <td class="text">
+                            @n.Text
+                            @if (!string.Equals(n.Original, n.Text, StringComparison.Ordinal))
+                            {
+                                <span class="raw" title="As the technician typed it">@n.Original</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @*
+            🔒 Wall 2, on screen. Sitting directly under the table above, the
+            argument makes itself — nobody has to be told what was withheld,
+            because both halves are visible at once. The vendor wrote that
+            sentence; this is everything it was given, and there isn't a note
+            body in it.
+        *@
+        <h2>What crossed the border — everything the vendor received</h2>
+        <pre class="digest">@Brain.Store.AsDigest()</pre>
+        <p class="footnote">
+            Reasoned over <b>@result.CorpusSize</b> notes in @result.ElapsedMs ms on <b>@result.Model</b>.
+            The counts above are computed here, from rows this hub is holding — the model writes the
+            sentence, the hub owns the arithmetic. And not one line of any technician's note left the fab.
+        </p>
+    }
+</div>
+
+@code {
+    string question = "";
+    bool busy;
+    TrendResult? result;
+    string? error;
+
+    int Technicians => Brain.Store.All.Select(n => n.Author).Distinct().Count();
+
+    // The fab has more than one cleanroom, and a finding confined to one of them
+    // means something different from one that spans both.
+    int Cleanrooms => Brain.Store.All
+        .Select(n => n.Cleanroom).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().Count();
+
+    async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AskAsync();
+    }
+
+    async Task AskAsync()
+    {
+        if (busy || string.IsNullOrWhiteSpace(question)) return;
+        busy = true; error = null; result = null;
+        try
+        {
+            var r = await Brain.AnalyseAsync(question);
+            if (r.Failed) error = r.Error; else result = r;
+        }
+        finally { busy = false; }
+    }
+
+    static string Icon(Severity s) => s switch
+    {
+        Severity.Escalate => "⚠️",
+        Severity.Watch => "👁",
+        _ => "✓",
+    };
+}

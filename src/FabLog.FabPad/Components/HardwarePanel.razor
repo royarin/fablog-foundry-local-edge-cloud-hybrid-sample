@@ -1,0 +1,66 @@
+@*
+    Which silicon the local tier actually landed on.
+
+    DiscoverEps() put straight on screen, unedited. Worth showing because it makes
+    the local tier concrete: not "it runs on-device", but *this* silicon, *this*
+    provider, chosen *this* way.
+*@
+<div class="panel hardware">
+    <h3>Hardware</h3>
+
+    <table class="eps">
+        <tbody>
+            @foreach (var ep in Probe.DiscoverExecutionProviders())
+            {
+                <tr class="@(ep.IsRegistered ? "on" : "off")">
+                    <td>@(ep.IsRegistered ? "✔" : "·")</td>
+                    <td>@ep.Name</td>
+                    @if (Probe.FailedProviders.Contains(ep.Name))
+                    {
+                        <td class="failed">registration failed</td>
+                    }
+                    else
+                    {
+                        <td></td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <dl class="resolved">
+        <dt>alias</dt><dd><code>@Options.ModelAlias</code></dd>
+        <dt>model</dt><dd><code>@Show(Probe.ResolvedModelId)</code></dd>
+        <dt>running on</dt><dd>@Show(Probe.ResolvedExecutionProvider)</dd>
+    </dl>
+
+    @*
+        ⚠️ Measured, and the reason this panel exists at all.
+
+        The alias alone resolved to the *integrated* GPU on a test machine, because
+        registering the OpenVINO provider makes the SDK prefer it — while the
+        discrete card sat idle. 968 ms → 3 307 ms per call, unasked for and
+        invisible. The alias chooses the model; VariantPreference chooses the
+        silicon.
+    *@
+    @if (Options.ForceVariant is { Length: > 0 })
+    {
+        <p class="forced">
+            ⚠️ <code>ForceVariant = "@Options.ForceVariant"</code> — pinned by config,
+            same build. A different execution provider, not a different app.
+        </p>
+    }
+    else
+    {
+        <p class="muted small">
+            Preference: @string.Join(" → ", Options.VariantPreference)
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public HardwareProbe Probe { get; set; } = null!;
+    [Parameter, EditorRequired] public T1Options Options { get; set; } = null!;
+
+    static string Show(string s) => s.Length == 0 ? "—" : s;
+}
