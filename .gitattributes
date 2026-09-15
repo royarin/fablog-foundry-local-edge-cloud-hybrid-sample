@@ -1,0 +1,44 @@
+# Normalise line endings on commit, check out native on each platform.
+#
+# Without this, whether a file lands in the repository as LF or CRLF depends on
+# each contributor's core.autocrlf setting, and the first person with a
+# different one turns a one-line change into a whole-file diff. This project is
+# authored on Windows but the Core and TrustHub projects build and test on any
+# .NET 10 host, so it has to survive being cloned on macOS and Linux.
+* text=auto
+
+# Sources and project files are text wherever they are opened.
+*.cs        text diff=csharp
+*.razor     text
+*.xaml      text
+*.csproj    text
+*.slnx      text
+*.props     text
+*.targets   text
+*.json      text
+*.css       text
+*.html      text
+*.md        text
+*.http      text
+*.yaml      text
+*.yml       text
+
+# Line endings that are not a preference. A .cmd or .ps1 with LF endings can
+# fail outright on Windows; a .sh with CRLF fails on Linux with the unhelpful
+# "bad interpreter" error.
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+*.sh        text eol=lf
+
+# Never touched, never diffed as text.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.dll       binary
+*.exe       binary
+*.pdb       binary
+*.snk       binary

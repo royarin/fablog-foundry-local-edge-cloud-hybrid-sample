@@ -48,6 +48,7 @@ rather than an `if` in the routing code.
 - [Measured numbers](#measured-numbers)
 - [Credentials and safety](#credentials-and-safety)
 - [Invariants — read before editing](#invariants--read-before-editing)
+- [License](#license)
 
 ---
 
@@ -826,3 +827,13 @@ still runs and no longer means anything.
     trail is free precisely because nothing can skip `RecordAsync`.
 11. **An unconfigured T3 fails loudly.** A stub that returned plausible prose would make
     "the cloud tier works" and "the cloud tier is wired" indistinguishable.
+
+---
+
+## License
+
+[MIT](LICENSE) — use it, fork it, lift pieces of it into your own work.
+
+The fab, its tools, its recipes, the seed corpus in `hub-notes.json` and every technician
+in it are invented. Any resemblance to a real process is a coincidence, and none of it is
+advice about running a real one.
