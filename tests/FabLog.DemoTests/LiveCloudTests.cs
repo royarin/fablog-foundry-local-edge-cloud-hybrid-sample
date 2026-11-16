@@ -90,6 +90,37 @@ public class LiveCloudTests(ITestOutputHelper output)
         "ETCH-03 chamber B uniformity ⟦R1⟧ on recipe ⟦R2⟧, ramp ⟦R3⟧ — off spec.";
 
     [LiveFact]
+    public async Task Extraction_keeps_shorthand_fields_separate()
+    {
+        using var vendor = Vendor(Config());
+        (string Raw, string ToolId, string Chamber, string Value)[] cases =
+        [
+            ("etch03 chmbr B unif 94.2% recipe RX-7 ramp 4.5s - 3rd shift running soft, off spec",
+                "ETCH-03", "B", "94.2%"),
+            ("etch06 chmbr A unif 93.8% recipe RX-9 ramp 5.2s - off spec",
+                "ETCH-06", "A", "93.8%"),
+            ("etch04 unif 92.1% recipe RX-2 ramp 3.1s - off spec",
+                "ETCH-04", "", "92.1%"),
+        ];
+
+        foreach (var sample in cases)
+        {
+            var reply = await vendor.GetResponseAsync(
+                [new ChatMessage(ChatRole.System, Prompts.Extract), new ChatMessage(ChatRole.User, sample.Raw)],
+                Prompts.TightOptions);
+            output.WriteLine($"note: {sample.Raw}\nextraction JSON:\n{reply.Text}");
+
+            var extracted = Prompts.ParseExtracted(reply.Text);
+            Assert.NotNull(extracted);
+            Assert.Equal(sample.ToolId, extracted.ToolId);
+            Assert.Equal(sample.Chamber, extracted.Chamber);
+            Assert.Equal("uniformity", extracted.Metric);
+            Assert.Equal(sample.Value, extracted.Value);
+            Assert.Equal(Severity.Escalate, extracted.Severity);
+        }
+    }
+
+    [LiveFact]
     public async Task The_vendor_model_reproduces_placeholders_verbatim()
     {
         // If this fails, masking is broken in the worst possible way: the route

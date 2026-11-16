@@ -29,10 +29,26 @@ public static class Prompts
         You extract structured data from semiconductor fab technician shorthand.
         Reply with ONLY a JSON object. No prose, no markdown fence, no explanation.
         {"toolId":string,"chamber":string,"metric":string,"value":string,"severity":"Routine"|"Watch"|"Escalate","tags":[string]}
-        severity: Routine = normal reading. Watch = drifting or near limit. Escalate = out of spec or a stoppage.
+
+        Extract each field from the note, not from an example. Never guess a missing field.
+        toolId: equipment ID only. Normalize etch03 or ETCH03 to ETCH-03.
+        A percentage, recipe ID such as RX-7, ramp time, or shift number is NOT a tool ID.
+        chamber: the single letter immediately after chamber, chmbr, chmb, or ch.
+        Return that letter uppercase, not a word or a letter from elsewhere in the note.
+        metric: expand unif to uniformity, vac to vacuum, and particles to particle count.
+        Use lowercase names consistently.
+        value: the reading for that metric, copied with its unit, such as 94.2%.
+        Do not substitute a recipe parameter, ramp time, or shift number for the reading.
+        severity: Escalate for off spec, out of spec, or a stoppage, even if the tool is still running.
+        Otherwise Watch for drifting or near limit; Routine for normal or back in spec.
         tags: 1-3 short lowercase context labels. Prefer these when they fit:
         maintenance, calibration, excursion, handover, follow-up, routine-check, consumable.
-        Use "" for anything the note does not state, and [] if no tag fits.
+        Use "" for unstated toolId, chamber, metric, or value, and [] if no tag fits.
+
+        Note: etch12 chmbr C unif 95.1% recipe RX-4 ramp 2.8s - 2nd shift, off spec
+        JSON: {"toolId":"ETCH-12","chamber":"C","metric":"uniformity","value":"95.1%","severity":"Escalate","tags":["excursion"]}
+        Note: etch08 vac pump noisy, raised PM ticket, tool still in production
+        JSON: {"toolId":"ETCH-08","chamber":"","metric":"vacuum","value":"","severity":"Watch","tags":["maintenance"]}
         """;
 
     // ── 2 · device: shorthand → a readable log sentence ─────────────────────
