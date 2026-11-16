@@ -130,54 +130,7 @@ public sealed class DeviceHost
         {
             using var loggerFactory = LoggerFactory.Create(b => b.AddDebug());
             var log = loggerFactory.CreateLogger("FabLog");
-
-            // ⚠️ AppName rejects dots. "FabLog.FabPad" throws
-            // "AppName contains invalid characters" — letters, numbers, spaces,
-            // hyphens and underscores only.
-            Report("starting Foundry Local…");
-            await FoundryLocalManager.CreateAsync(new FoundryConfiguration { AppName = "FabLog" }, log, null);
-            var mgr = FoundryLocalManager.Instance;
-
-            Report("registering execution providers…");
-            Hardware.Capture(mgr.DiscoverEps());
-            // ⚠️ This callback reports 0–100 already (unlike DownloadAsync's 0.0–1.0
-            // below) — :P0 would multiply by 100 again and print "4,700 %". :F0 + a
-            // literal "%" is correct here.
-            var eps = await mgr.DownloadAndRegisterEpsAsync(
-                (name, pct) => Report($"registering {name} — {pct:F0}%"), null);
-            Hardware.Capture(mgr.DiscoverEps(), eps.FailedEps);
-
-            Report($"resolving {Options.T1.ModelAlias}…");
-            var catalog = await mgr.GetCatalogAsync(null);
-
-            // If the primary alias isn't in this machine's catalogue, drop to the
-            // 0.5B rather than dying. That is the point of FallbackAlias being
-            // config: a machine that can't serve the 1.5B still runs, just slower
-            // and slightly worse.
-            var model = await catalog.GetModelAsync(Options.T1.ModelAlias, null);
-            if (model is null && Options.T1.FallbackAlias is { Length: > 0 } fallback)
-            {
-                Report($"{Options.T1.ModelAlias} unavailable — falling back to {fallback}…");
-                model = await catalog.GetModelAsync(fallback, null);
-            }
-            if (model is null)
-                throw new InvalidOperationException(
-                    $"Neither '{Options.T1.ModelAlias}' nor '{Options.T1.FallbackAlias}' is in the Foundry Local catalogue. " +
-                    "Run `foundry model download qwen2.5-1.5b` first.");
-
-            var (target, id) = SelectVariant(model);
-            Hardware.Resolve(id, ProviderOf(id));
-
-            if (!await target.IsCachedAsync(null))
-            {
-                Report($"downloading {id}…");
-                await target.DownloadAsync(p => Report($"downloading {id} — {p:P0}"), null);
-            }
-
-            Report($"loading {id}…");
-            await target.LoadAsync(null);
-
-            var t1 = await FoundryChatClient.CreateAsync(target, id);
+            var (t1, id) = await LoadDeviceClientAsync(log);
 
             // ── Two tiers on the routing axis, one interface ───────────────────
             //
@@ -217,6 +170,48 @@ public sealed class DeviceHost
             StartupError = $"{ex.GetType().Name}: {ex.Message}";
             Report("start-up failed");
         }
+    }
+
+    async Task<(IChatClient Client, string ModelId)> LoadDeviceClientAsync(ILogger log)
+    {
+        Report("starting Foundry Local…");
+
+        // AppName must not contain dots.
+        await FoundryLocalManager.CreateAsync(new FoundryConfiguration { AppName = "FabLog" }, log, null);
+        var mgr = FoundryLocalManager.Instance;
+
+        Report("registering execution providers…");
+        Hardware.Capture(mgr.DiscoverEps());
+        var eps = await mgr.DownloadAndRegisterEpsAsync(
+            (name, pct) => Report($"registering {name} — {pct:F0}%"), null);
+        Hardware.Capture(mgr.DiscoverEps(), eps.FailedEps);
+
+        Report($"resolving {Options.T1.ModelAlias}…");
+        var catalog = await mgr.GetCatalogAsync(null);
+        var model = await catalog.GetModelAsync(Options.T1.ModelAlias, null);
+        if (model is null && Options.T1.FallbackAlias is { Length: > 0 } fallback)
+        {
+            Report($"{Options.T1.ModelAlias} unavailable — falling back to {fallback}…");
+            model = await catalog.GetModelAsync(fallback, null);
+        }
+        if (model is null)
+            throw new InvalidOperationException(
+                $"Neither '{Options.T1.ModelAlias}' nor '{Options.T1.FallbackAlias}' is in the Foundry Local catalogue. " +
+                "Run `foundry model download qwen2.5-1.5b` first.");
+
+        var (target, id) = SelectVariant(model);
+        Hardware.Resolve(id, ProviderOf(id));
+
+        if (!await target.IsCachedAsync(null))
+        {
+            Report($"downloading {id}…");
+            await target.DownloadAsync(p => Report($"downloading {id} — {p:P0}"), null);
+        }
+
+        Report($"loading {id}…");
+        await target.LoadAsync(null);
+
+        return (await FoundryChatClient.CreateAsync(target, id), id);
     }
 
     /// <summary>
