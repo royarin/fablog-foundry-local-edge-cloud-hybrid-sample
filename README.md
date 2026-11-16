@@ -184,8 +184,16 @@ prose. *A redactor you cannot run is not a control; a projection you cannot wide
 
 ## How a note is routed
 
-`FabLog.Core/Router.cs` — one public method, `ProcessAsync`. The permitted set decides;
-there is no `if (mode == …)` and no connectivity check anywhere in it.
+`FabLog.Core\Router.cs` — one public entry point, `ProcessAsync`, which dispatches to
+three named methods: `CloudOnlyAsync`, `EdgeOnlyAsync`, and `HybridAsync`. The permitted
+set decides; there is no `if (mode == …)` and no connectivity check anywhere in it.
+
+The paths share the same model-call code without sharing a provider SDK. `CloudOnlyAsync`
+and the local paths call `ExtractAndCleanAsync(IChatClient, ...)`; the selected client
+changes, not the extraction logic. In FabPad, follow `DeviceHost.StartAsync`: it calls
+`LoadDeviceClientAsync` for Foundry Local setup, then keeps the two-client tier map and
+`Router`/`ShiftReporter` wiring visible together. `FoundryChatClient` adapts Foundry Local
+and `CloudClient` adapts Azure to `IChatClient`; Core sees only that shared interface.
 
 | Posture | Spans found | Path | What crosses wall 1 | Ledger reason |
 |---|---|---|---|---|
@@ -218,6 +226,21 @@ nobody is waiting on a note reaching the fab's server. Deferring an *answer* is 
 reply that arrives twenty minutes later, unprompted, is worse than an error. And there is
 no queue object for pending notes either: `Pending` is a filter over the notes the device
 already holds, because "pending" is a fact about a note, not a second copy of it.
+
+### Developer demo map
+
+| Moment | Code to open | Existing proof |
+|---|---|---|
+| 1–2 · CloudOnly and raw payload | `Router.CloudOnlyAsync`; payload and ledger panels | `RoutingTests` · `#region CloudOnly` |
+| 3 · cleanroom blocks both networks | `AirlockHandler`; `Router.RecordAsync`; pending notes | `RoutingTests` · `#region Offline` |
+| 4 · EdgeOnly and hardware choice | `Router.EdgeOnlyAsync`; `DeviceHost.LoadDeviceClientAsync` / `SelectVariant`; `FoundryChatClient` | `RoutingTests` · `#region EdgeOnly` |
+| 5 · Hybrid while offline | `Router.HybridAsync` → `HybridWithIpAsync` / `HybridWithoutIpAsync`; `RecordAsync` | `RoutingTests` · `#region Hybrid` |
+| 6 · latency and device scope | `RouteResult.ElapsedMs`; `DeviceScope.Refuse` | `RoutingTests` · `#region Scope` |
+| 7 · pending notes drain on return | `DeviceHost.PollAsync` / `SyncPendingAsync`; `NoteStore` | `RoutingTests` · `#region Pending`; `EndToEndTests` |
+| 8 · fleet trend from a digest | `HubStore.AsDigest`; `HubBrain.AnalyseAsync` / `Detect` | `TrendTests` |
+| 9 · mask and restore | `Router.HybridWithIpAsync`; `Redaction.Mask` / `Unmask` | `RoutingTests` · `#region Hybrid` |
+| 10 · shift report and audit | `ShiftReporter.CompileAsync`; `Router.RecordAsync`; ledger panel | `RoutingTests` · `#region ShiftReport` / `#region Ledger` |
+| Hardware and policy reveals | `Tiers.Policies`; `DeviceHost.SelectVariant`; hardware panel | routing, configuration and hardware tests |
 
 ### The other two flows
 
@@ -307,7 +330,7 @@ FabLog/
 ├── src/
 │   ├── FabLog.Core/                — net10.0 · no SDKs, no I/O, no infrastructure
 │   │   ├── Tiers.cs                — Tier, DemoMode, Policy/Policies, IConnectivity, INoteSink
-│   │   ├── Router.cs               — the routing decision + DeviceScope's refusal
+│   │   ├── Router.cs               — CloudOnlyAsync / EdgeOnlyAsync / HybridAsync + DeviceScope
 │   │   ├── Redaction.cs            — rules + model, mask/unmask, ⟦R1⟧
 │   │   ├── Airlock.cs              — IAirlock, AirlockHandler
 │   │   ├── FabNote.cs              — FabNote, IpSpan, SyncState, LedgerEntry, Ledger
