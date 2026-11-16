@@ -74,9 +74,13 @@ public sealed class Router(
         var localAllowed = policy.Allowed.Contains(Tier.T1Device);
         var cloudAllowed = policy.Allowed.Contains(Tier.T3VendorCloud);
 
-        return localAllowed
-            ? await WithLocalPathAsync(req, policy, cloudAllowed, sw, ct)
-            : await CloudOnlyAsync(req, sw, ct);
+        if (!localAllowed)
+            return await CloudOnlyAsync(req, sw, ct);
+
+        if (!cloudAllowed)
+            return await EdgeOnlyAsync(req, sw, ct);
+
+        return await HybridAsync(req, policy, sw, ct);
     }
 
     #region No local path
@@ -99,24 +103,7 @@ public sealed class Router(
         // reason.
         var cloud = tiers[Tier.T3VendorCloud];
         var (cleaned, extracted) = await ExtractAndCleanAsync(cloud, req.Raw, ct);
-        var tags = extracted.Tags.Count > 0
-            ? extracted.Tags
-            : Prompts.DeriveTags(req.Raw, extracted.Severity);
-
-        var note = FabNote.New(req.Raw, req.Author, req.DeviceId, req.Cleanroom) with
-        {
-            Id = req.NoteId ?? Guid.NewGuid(),
-            Cleaned = cleaned,
-            ToolId = extracted.ToolId,
-            Chamber = extracted.Chamber,
-            Metric = extracted.Metric,
-            Value = extracted.Value,
-            Severity = extracted.Severity,
-            Tags = tags,
-            // IpSpans stays empty: redaction needs a local model to draw the border
-            // with, and CloudOnly by definition has none. That divergence from the
-            // local path is architectural, not a gap.
-        };
+        var note = CreateNote(req, cleaned, extracted, spans: null);
 
         try
         {
@@ -143,110 +130,75 @@ public sealed class Router(
 
     #endregion
 
-    // Everything below has a local path, so T1 always runs FIRST: structure,
-    // classify and detect spans before any tier is chosen. Masking happens on the
-    // device — the device never depends on the hub behaving well.
-    async Task<RouteResult> WithLocalPathAsync(
-        RouteRequest req, Policy policy, bool cloudAllowed, Stopwatch sw, CancellationToken ct)
+    // Local-only: process and sync the note, but never call the vendor.
+    async Task<RouteResult> EdgeOnlyAsync(RouteRequest req, Stopwatch sw, CancellationToken ct)
     {
-        var device = tiers[Tier.T1Device];
+        var (note, _) = await PrepareLocalNoteAsync(
+            req, tiers[Tier.T1Device], protectIp: false, ct);
 
-        var (cleaned, extracted) = await ExtractAndCleanAsync(device, req.Raw, ct);
-        var spans = policy.ProtectIp ? await Redaction.DetectAsync(req.Raw, device, ct) : [];
+        sw.Stop();
+        return await RecordAsync(note,
+            Tier.T1Device, "T1", models.Device, "policy: edge only",
+            sw.ElapsedMilliseconds, payload: "", output: note.Readable, ct: ct);
+    }
 
-        // Context tags: the model's if it gave any, deterministic keywords if not.
-        // Same belt-and-braces rule the span detector follows — a note must not
-        // lose its context because a 1.5B had an off moment.
-        var tags = extracted.Tags.Count > 0
-            ? extracted.Tags
-            : Prompts.DeriveTags(req.Raw, extracted.Severity);
+    // Hybrid: prepare locally, then send only what the note's detected spans allow.
+    async Task<RouteResult> HybridAsync(
+        RouteRequest req, Policy policy, Stopwatch sw, CancellationToken ct)
+    {
+        var (note, masked) = await PrepareLocalNoteAsync(
+            req, tiers[Tier.T1Device], policy.ProtectIp, ct);
+        var spans = note.Spans;
 
-        var note = FabNote.New(req.Raw, req.Author, req.DeviceId, req.Cleanroom) with
-        {
-            Id = req.NoteId ?? Guid.NewGuid(),
-            Cleaned = cleaned,
-            ToolId = extracted.ToolId,
-            Chamber = extracted.Chamber,
-            Metric = extracted.Metric,
-            Value = extracted.Value,
-            Severity = extracted.Severity,
-            IpSpans = spans,
-            Tags = tags,
-        };
+        return spans.Count > 0
+            ? await HybridWithIpAsync(req, note, masked, spans, sw, ct)
+            : await HybridWithoutIpAsync(req, note, sw, ct);
+    }
 
-        var masked = spans.Count > 0 ? Redaction.Mask(req.Raw, spans) : req.Raw;
-
-        // ── Local-only · the vendor is not in the permitted set ─────────────
-        //
-        // 🔍 The cloud is not attempted at all — not tried and failed, *never asked*.
-        // That is why this row reads identically whether the technician is at the
-        // bench or sealed in a cleanroom, and why the decision log needs two
-        // different words: `policy: edge only` here, `vendor unreachable` below.
-        // One is a decision the company made; the other is a building.
-        if (!cloudAllowed)
+    // Scene 5 / connected Hybrid with proprietary spans: mask before T3, restore on-device.
+    async Task<RouteResult> HybridWithIpAsync(
+        RouteRequest req, FabNote note, string masked, IReadOnlyList<IpSpan> spans,
+        Stopwatch sw, CancellationToken ct)
+    {
+        if (!req.WantPolish)
         {
             sw.Stop();
-            return await RecordAsync(note,
-                Tier.T1Device, "T1", models.Device, "policy: edge only",
-                sw.ElapsedMilliseconds, payload: "", output: cleaned, ct: ct);
+            return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
+                "policy: fab IP, no cloud-grade prose needed",
+                sw.ElapsedMilliseconds, payload: "", output: note.Readable, ct: ct);
         }
 
-        #region Hybrid
-
-        // ── Hybrid · both tiers permitted, so the NOTE decides ──────────────
-        if (spans.Count > 0)
+        try
         {
-            // Hard rule. The network is fine and it still doesn't go.
-            if (!req.WantPolish)
-            {
-                sw.Stop();
-                return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
-                    "policy: fab IP, no cloud-grade prose needed",
-                    sw.ElapsedMilliseconds, payload: "", output: cleaned, ct: ct);
-            }
+            var reply = await tiers[Tier.T3VendorCloud].GetResponseAsync(
+                [new ChatMessage(ChatRole.System, Prompts.Polish), new ChatMessage(ChatRole.User, masked)],
+                Prompts.ProseOptions, ct);
+            var restored = Redaction.Unmask(reply.Text ?? "", spans);
+            sw.Stop();
 
-            try
-            {
-                // 🔍 The device masks → the vendor writes → the device restores.
-                //
-                // The restore is a dictionary lookup, NOT a model call: ⟦R1⟧ → RX-7
-                // is exact and already held here. Putting a model in that step buys
-                // nothing to reason about and risks the one failure that is hardest
-                // to spot — prose that reads perfectly with the wrong value in it.
-                var reply = await tiers[Tier.T3VendorCloud].GetResponseAsync(
-                    [new ChatMessage(ChatRole.System, Prompts.Polish), new ChatMessage(ChatRole.User, masked)],
-                    Prompts.ProseOptions, ct);
-                var restored = Redaction.Unmask(reply.Text ?? "", spans);
-                sw.Stop();
-
-                // 🔍 The payload is the MASKED text.
-                return await RecordAsync(note with { Polished = restored },
-                    Tier.T1Device, "T1→T3", $"{models.Device} + {models.Cloud}",
-                    "policy: fab IP detected", sw.ElapsedMilliseconds, payload: masked, output: restored, ct: ct);
-            }
-            catch (Exception ex)
-            {
-                // 🔍 DEGRADED, NOT DEAD — and the difference from CloudOnly is the
-                // local model. Permitted, attempted, unreachable; the structured,
-                // classified, masked note is already in hand and only the prose is
-                // missing. Nothing is queued: the technician asked a question and
-                // did not get an answer, and retrying is one click away.
-                sw.Stop();
-                return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
-                    "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: cleaned,
-                    degraded: true, error: Describe(ex), ct: ct);
-            }
+            return await RecordAsync(note with { Polished = restored },
+                Tier.T1Device, "T1→T3", $"{models.Device} + {models.Cloud}",
+                "policy: fab IP detected", sw.ElapsedMilliseconds, payload: masked, output: restored, ct: ct);
         }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
+                "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: note.Readable,
+                degraded: true, error: Describe(ex), ct: ct);
+        }
+    }
 
-        #endregion
-
-        // ── Hybrid · nothing proprietary in this note ───────────────────────
+    // Connected Hybrid without proprietary spans: the note may cross unchanged.
+    async Task<RouteResult> HybridWithoutIpAsync(
+        RouteRequest req, FabNote note, Stopwatch sw, CancellationToken ct)
+    {
         if (!req.WantPolish)
         {
             sw.Stop();
             return await RecordAsync(note,
                 Tier.T1Device, "T1", models.Device, "no cloud-grade prose needed",
-                sw.ElapsedMilliseconds, payload: "", output: cleaned, ct: ct);
+                sw.ElapsedMilliseconds, payload: "", output: note.Readable, ct: ct);
         }
 
         try
@@ -261,12 +213,43 @@ public sealed class Router(
         }
         catch (Exception ex)
         {
-            // Degraded, not dead — same as the masked branch above.
             sw.Stop();
             return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
-                "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: cleaned,
+                "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: note.Readable,
                 degraded: true, error: Describe(ex), ct: ct);
         }
+    }
+
+    // The local paths share extraction/cleaning; only Hybrid asks T1 to detect IP spans.
+    async Task<(FabNote Note, string Masked)> PrepareLocalNoteAsync(
+        RouteRequest req, IChatClient model, bool protectIp, CancellationToken ct)
+    {
+        var (cleaned, extracted) = await ExtractAndCleanAsync(model, req.Raw, ct);
+        var spans = protectIp ? await Redaction.DetectAsync(req.Raw, model, ct) : [];
+        var note = CreateNote(req, cleaned, extracted, spans);
+
+        return (note, spans.Count > 0 ? Redaction.Mask(req.Raw, spans) : req.Raw);
+    }
+
+    static FabNote CreateNote(
+        RouteRequest req, string cleaned, Extracted extracted, IReadOnlyList<IpSpan>? spans)
+    {
+        var tags = extracted.Tags.Count > 0
+            ? extracted.Tags
+            : Prompts.DeriveTags(req.Raw, extracted.Severity);
+
+        return FabNote.New(req.Raw, req.Author, req.DeviceId, req.Cleanroom) with
+        {
+            Id = req.NoteId ?? Guid.NewGuid(),
+            Cleaned = cleaned,
+            ToolId = extracted.ToolId,
+            Chamber = extracted.Chamber,
+            Metric = extracted.Metric,
+            Value = extracted.Value,
+            Severity = extracted.Severity,
+            IpSpans = spans,
+            Tags = tags,
+        };
     }
 
     // ── Every path ends here. That is what makes the audit trail free, and it

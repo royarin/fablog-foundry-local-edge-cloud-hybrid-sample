@@ -189,6 +189,19 @@ public class RoutingTests
         Assert.False(Policies.For(DemoMode.CloudOnly).ProtectIp);
     }
 
+    [Fact]
+    public async Task Cloud_only_leaves_spans_undetected_while_local_paths_supply_an_empty_list()
+    {
+        var rig = new Rig();
+
+        var cloud = await rig.LogAsync(DeviceReplies.SeedNote, DemoMode.CloudOnly);
+        var edge = await rig.LogAsync(DeviceReplies.SeedNote, DemoMode.EdgeOnly);
+
+        Assert.Null(cloud.Note.IpSpans);
+        Assert.NotNull(edge.Note.IpSpans);
+        Assert.Empty(edge.Note.IpSpans);
+    }
+
     #endregion
 
     // ══ Losing the network ═══════════════════════════════════════════════════
