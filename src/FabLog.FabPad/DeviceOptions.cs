@@ -102,9 +102,8 @@ public sealed class T1Options
     /// card sits idle behind <c>…-cuda-gpu</c>. That is roughly a 3× difference in
     /// first-token latency.
     /// <para>
-    /// So the alias still chooses the <i>model</i> and this list chooses the
-    /// <i>silicon</i>, most-preferred first. First match in the catalogue wins;
-    /// if none match, the SDK's own resolution is used unchanged.
+    /// The retained manual selector uses this list, most-preferred first. It is
+    /// currently disabled in favor of the SDK's default resolution.
     /// </para>
     /// </summary>
     // ⚠️ Left empty on purpose. appsettings.json is the single source of truth for
@@ -115,9 +114,8 @@ public sealed class T1Options
     public string[] VariantPreference { get; set; } = [];
 
     /// <summary>
-    /// Pin the execution provider. Set to <c>generic-cpu</c> to run the same build
-    /// with no GPU at all — which is what answers "what does this cost on the
-    /// hardware a fab actually has".
+    /// Pin a model variant when the retained manual selector is enabled. Currently
+    /// inactive because the SDK selects the default variant.
     /// </summary>
     public string ForceVariant { get; set; } = "";
 }

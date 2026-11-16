@@ -28,34 +28,20 @@
         </tbody>
     </table>
 
+    <p class="muted small">
+        Execution providers are software backends, not individual devices.
+        OpenVINO supports Intel GPU and NPU targets; the selected model below identifies the target.
+    </p>
+
     <dl class="resolved">
         <dt>alias</dt><dd><code>@Options.ModelAlias</code></dd>
         <dt>model</dt><dd><code>@Show(Probe.ResolvedModelId)</code></dd>
         <dt>running on</dt><dd>@Show(Probe.ResolvedExecutionProvider)</dd>
     </dl>
 
-    @*
-        ⚠️ Measured, and the reason this panel exists at all.
-
-        The alias alone resolved to the *integrated* GPU on a test machine, because
-        registering the OpenVINO provider makes the SDK prefer it — while the
-        discrete card sat idle. 968 ms → 3 307 ms per call, unasked for and
-        invisible. The alias chooses the model; VariantPreference chooses the
-        silicon.
-    *@
-    @if (Options.ForceVariant is { Length: > 0 })
-    {
-        <p class="forced">
-            ⚠️ <code>ForceVariant = "@Options.ForceVariant"</code> — pinned by config,
-            same build. A different execution provider, not a different app.
-        </p>
-    }
-    else
-    {
-        <p class="muted small">
-            Preference: @string.Join(" → ", Options.VariantPreference)
-        </p>
-    }
+    <p class="muted small">
+        Foundry Local selects the variant. ForceVariant and VariantPreference are currently inactive.
+    </p>
 </div>
 
 @code {

@@ -199,7 +199,10 @@ public sealed class DeviceHost
                 $"Neither '{Options.T1.ModelAlias}' nor '{Options.T1.FallbackAlias}' is in the Foundry Local catalogue. " +
                 "Run `foundry model download qwen2.5-1.5b` first.");
 
-        var (target, id) = SelectVariant(model);
+        // Use the SDK default. SelectVariant is retained below for machines where
+        // automatic resolution chooses a slower device.
+        // var (target, id) = SelectVariant(model);
+        var (target, id) = (model, model.Id);
         Hardware.Resolve(id, ProviderOf(id));
 
         if (!await target.IsCachedAsync(null))
@@ -215,9 +218,8 @@ public sealed class DeviceHost
     }
 
     /// <summary>
-    /// Alias picks the model; <see cref="T1Options.VariantPreference"/> picks the
-    /// silicon. See the comment on that property for why relying on the SDK's own
-    /// resolution costs 3× on a two-GPU machine.
+    /// Optional manual selection, currently unused. Retained because SDK default
+    /// resolution selected the integrated GPU on a previous two-GPU machine.
     /// </summary>
     (IModel Model, string Id) SelectVariant(IModel model)
     {
@@ -241,7 +243,9 @@ public sealed class DeviceHost
     static string ProviderOf(string modelId) =>
         modelId.Contains("cuda", StringComparison.OrdinalIgnoreCase) ? "CUDA (discrete GPU)"
         : modelId.Contains("trtrtx", StringComparison.OrdinalIgnoreCase) ? "NvTensorRT-RTX"
-        : modelId.Contains("openvino", StringComparison.OrdinalIgnoreCase) ? "OpenVINO (integrated GPU)"
+        : modelId.Contains("openvino-npu", StringComparison.OrdinalIgnoreCase) ? "OpenVINO (Intel NPU)"
+        : modelId.Contains("openvino-gpu", StringComparison.OrdinalIgnoreCase) ? "OpenVINO (integrated GPU)"
+        : modelId.Contains("openvino", StringComparison.OrdinalIgnoreCase) ? "OpenVINO"
         : modelId.Contains("generic-gpu", StringComparison.OrdinalIgnoreCase) ? "DirectML / generic GPU"
         : "CPU";
 

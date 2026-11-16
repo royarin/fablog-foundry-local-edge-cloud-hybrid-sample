@@ -74,30 +74,30 @@ Disk: budget ~2 GB per variant. The app will download on first run if the varian
 cached, but that turns a cold start into a multi-minute wait — run the two commands above
 in advance.
 
-### 1.3 ⚠️ Execution providers — pick the silicon explicitly
+### 1.3 ⚠️ Execution providers — check the selected silicon
 
-**This is the one setting that decides how fast T1 is.** On a two-GPU machine (measured on
-an RTX A1000 + Intel UHD laptop), letting the SDK resolve the alias by itself picks the
-**integrated** GPU and leaves the NVIDIA card idle — a measured **3.4×** penalty.
+Foundry Local currently resolves the alias and selects the model variant. Check the
+Hardware panel after startup: on an earlier RTX A1000 + Intel UHD laptop, SDK default
+resolution selected the integrated GPU, a measured **3.4×** penalty.
 
-So the alias chooses the *model* and `VariantPreference` chooses the *silicon*:
+`DeviceHost.SelectVariant` is retained as a reference for overriding this choice, but it
+is not called. `VariantPreference` and `ForceVariant` in configuration are therefore
+inactive unless a developer re-enables that call and rebuilds.
 
-```jsonc
-"VariantPreference": [ "cuda-gpu", "trtrtx", "openvino", "generic-gpu", "generic-cpu" ]
-```
+Per-variant numbers are in [`README.md`](README.md#measured-numbers).
 
-First match in `model.Variants` wins; the SDK's own choice is the final fallback. The
-per-variant numbers are in [`README.md`](README.md#measured-numbers).
+`OpenVINOExecutionProvider` covers both Intel GPU and NPU targets; there is no separate
+"NPU" provider row. The Hardware panel distinguishes `openvino-gpu` from `openvino-npu`
+in the resolved model and "running on" label. `ForceVariant` cannot select the NPU while
+the manual selector is disabled.
 
 Two things to know when moving to a different machine:
 
 - `NvTensorRTRTXExecutionProvider` **failed to register** on the laptop these numbers came
   from, so the `trtrtx` variant the CLI advertises never appeared in `model.Variants`. It
-  stays in the preference list because it costs nothing and is the fastest option where it
-  does work.
+  is retained in the inactive preference list for machines where it works.
 - The Hardware panel shows `DiscoverEps()` verbatim, including failures. Check it once
-  after any hardware or driver change: if the resolved provider says *OpenVINO (integrated
-  GPU)*, every local call is three times slower than it needs to be.
+  after any hardware or driver change; hardware and relative performance vary by machine.
 
 ### 1.4 Running the same build on CPU
 
@@ -105,9 +105,9 @@ Two things to know when moving to a different machine:
 "ForceVariant": "generic-cpu"
 ```
 
-One config line, no rebuild: **968 ms → 12 219 ms per call**, 2.9 s → 36.7 s per note.
-Processing one note is three T1 calls, so the per-note figure is the one a technician
-would actually feel.
+This setting only takes effect if a developer re-enables the retained `SelectVariant`
+call and rebuilds. On the measured machine, CPU ran at **12 219 ms per call** versus
+**968 ms** on CUDA. Processing one note is three T1 calls.
 
 ### 1.5 The device's two outbound connections
 

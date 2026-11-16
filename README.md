@@ -237,14 +237,14 @@ already holds, because "pending" is a fact about a note, not a second copy of it
 |---|---|---|
 | 1–2 · CloudOnly and raw payload | `Router.CloudOnlyAsync`; payload and ledger panels | `RoutingTests` · `#region CloudOnly` |
 | 3 · cleanroom blocks both networks | `AirlockHandler`; `Router.RecordAsync`; pending notes | `RoutingTests` · `#region Offline` |
-| 4 · EdgeOnly and hardware choice | `Router.EdgeOnlyAsync`; `DeviceHost.LoadDeviceClientAsync` / `SelectVariant`; `FoundryChatClient` | `RoutingTests` · `#region EdgeOnly` |
+| 4 · EdgeOnly and hardware choice | `Router.EdgeOnlyAsync`; `DeviceHost.LoadDeviceClientAsync`; `FoundryChatClient` | `RoutingTests` · `#region EdgeOnly` |
 | 5 · Hybrid while offline | `Router.HybridAsync` → `HybridWithIpAsync` / `HybridWithoutIpAsync`; `RecordAsync` | `RoutingTests` · `#region Hybrid` |
 | 6 · latency and device scope | `RouteResult.ElapsedMs`; `DeviceScope.Refuse` | `RoutingTests` · `#region Scope` |
 | 7 · pending notes drain on return | `DeviceHost.PollAsync` / `SyncPendingAsync`; `NoteStore` | `RoutingTests` · `#region Pending`; `EndToEndTests` |
 | 8 · fleet trend from a digest | `HubStore.AsDigest`; `HubBrain.AnalyseAsync` / `Detect` | `TrendTests` |
 | 9 · mask and restore | `Router.HybridWithIpAsync`; `Redaction.Mask` / `Unmask` | `RoutingTests` · `#region Hybrid` |
 | 10 · shift report and audit | `ShiftReporter.CompileAsync`; `Router.RecordAsync`; ledger panel | `RoutingTests` · `#region ShiftReport` / `#region Ledger` |
-| Hardware and policy reveals | `Tiers.Policies`; `DeviceHost.SelectVariant`; hardware panel | routing, configuration and hardware tests |
+| Hardware and policy reveals | `Tiers.Policies`; `DeviceHost.LoadDeviceClientAsync`; hardware panel | routing, configuration and hardware tests |
 
 ### The other two flows
 
@@ -556,8 +556,8 @@ larger model fixes it; only moving the workload to where the data is does — wh
 
 While you are here, the other three limits are on screen: **latency** (local ~968 ms vs
 cloud ~1590 ms in the ledger — local wins), **per note** (~2.9 s, because one note is three
-calls), and **compute** (`FabLog:T1:ForceVariant: "generic-cpu"` and a restart makes the same
-build take 36.7 s per note — a 12.6× penalty; see [Measured numbers](#measured-numbers)).
+calls), and **compute** (on a measured machine, CPU took 36.7 s per note — a 12.6×
+penalty; see [Measured numbers](#measured-numbers)).
 
 *Pinned by* `RoutingTests` · `#region Scope`.
 
@@ -706,8 +706,8 @@ carries `<…>` placeholders, and `T3Options.IsConfigured` treats any value star
 | `FabLog:Shift` | `Morning`/`Night` + date, computed | Both halves read off the wall clock (06:00–17:59 is Morning); a night shift keeps the date it began. Set explicitly to pin a value. |
 | `FabLog:T1:ModelAlias` | `qwen2.5-1.5b` | The alias chooses the **model**. |
 | `FabLog:T1:FallbackAlias` | `qwen2.5-0.5b` | Used if the primary is not in this machine's catalogue — weaker, but it runs. |
-| `FabLog:T1:VariantPreference` | `["cuda-gpu","trtrtx","openvino","generic-gpu","generic-cpu"]` | The preference list chooses the **silicon**. First match wins; the SDK's own resolution is the final fallback. |
-| `FabLog:T1:ForceVariant` | `""` | e.g. `generic-cpu` — the same build with no GPU, one config line, no rebuild. |
+| `FabLog:T1:VariantPreference` | `["cuda-gpu","trtrtx","openvino-gpu","openvino-npu","generic-gpu","generic-cpu"]` | Retained for the manual selector; currently inactive. |
+| `FabLog:T1:ForceVariant` | `""` | Retained for the manual selector; currently inactive. |
 | `FabLog:T3:Endpoint` | — | **Scheme and host only.** `T3Options.ResourceEndpoint` strips any path, so all three endpoints the portal offers work. |
 | `FabLog:T3:Deployment` | — | Rendered in the UI beside every cloud call. |
 | `FabLog:T3:ApiKey` | — | Development file only. |
@@ -715,10 +715,9 @@ carries `<…>` placeholders, and `T3Options.IsConfigured` treats any value star
 | `FabLog:Demo:PadOnNetwork` | `true` | Starting position of the cleanroom door. |
 | `FabLog:Demo:DrainIntervalSeconds` | `2` | How often the device *tries to send* — not a connectivity poll. |
 
-> ⚠️ **`VariantPreference` is the setting that decides how fast T1 is.** Letting the SDK
-> resolve the alias on a two-GPU machine picks the *integrated* GPU and leaves the NVIDIA
-> card idle — a measured **3.4×** penalty. Check the Hardware panel: if it says *OpenVINO
-> (integrated GPU)*, every local call is three times slower than it needs to be.
+> Foundry Local currently chooses the variant. On an earlier two-GPU machine its choice
+> was the integrated GPU, a measured **3.4×** slower than CUDA. Check the Hardware panel;
+> `DeviceHost.SelectVariant` is retained as a manual alternative but is not called.
 
 > ⚠️ `appsettings.Development.json` overrides the base file key-by-key and is a
 > **complete** copy of it, so the committed `appsettings.json` is inert at runtime — it is
@@ -785,8 +784,8 @@ median of the warm calls reported.
 | `…-generic-cpu:4` | CPU | 12 219 ms | 36.7 s |
 
 Processing one note costs three T1 calls — extract, classify, clean — which is why the
-per-note column matters more than the per-call one, and why `VariantPreference` above is
-worth getting right: CUDA to integrated GPU is a 3.4× penalty for free.
+per-note column matters more than the per-call one. On that machine, CUDA to integrated
+GPU was a 3.4× penalty; the SDK's selected variant can differ on other machines.
 
 `LoadAsync` costs 8.6–23.2 s depending on variant, which is why start-up pre-warms rather
 than loading on the first keystroke.
