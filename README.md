@@ -86,7 +86,7 @@ crossed which boundary.
   │   detect fab IP · mask · unmask   │   (masked text only)  │    gpt-5.4-mini
   │   ledger · pending notes          │                       │
   └───────────┬───────────────────────┘                       │
-              │ C3 · sync: every note, in full, unredacted    │
+              │ C3 · sync: processed notes, unredacted       │
               ▼                                               │
   ┌───────────────────────────────────┐                       │
   │  T2 · TrustHub  (the fab's server)│   digest only —       │
@@ -99,7 +99,7 @@ crossed which boundary.
 | Tier | Project | What it is | What it may see |
 |---|---|---|---|
 | **T1** | `FabLog.FabPad` | The handheld. WPF shell hosting a Blazor UI; `qwen2.5-1.5b` loaded **in-process** by Foundry Local (no local server, no port). | This technician's notes, in full. Holds the placeholder→value mapping, which never leaves. |
-| **T2** | `FabLog.TrustHub` | The fab's own service on the fab's own network, plus **FabDesk**, the supervisor's screen. | *Every* technician's notes, in full, in every posture. You do not redact to yourself. |
+| **T2** | `FabLog.TrustHub` | The fab's own service on the fab's own network, plus **FabDesk**, the supervisor's screen. | Every successfully processed technician's note, in full, in every posture. Failed attempts stay in the device's audit ledger. |
 | **T3** | Microsoft Foundry | The model vendor. Reached by **two independent callers** — the pad and the hub — over separate wires. | From the pad: the note, masked (or whole, under `CloudOnly`). From the hub: a structured digest with **no note text at all**. |
 
 **T2 is not a hop.** It is a destination. The device does *not* reach the cloud through
@@ -217,9 +217,13 @@ Every path lands in one private `RecordAsync`, which is what makes the audit tra
 
 - **one `LedgerEntry`** — note id, tier, path, model, reason, elapsed ms, and the
   **literal payload** (not a hash — the UI renders it);
-- **one sync attempt to T2** — the whole note, unredacted, in every posture. Returns
+- **one sync attempt to T2 for a successful route** — the whole note, unredacted, in every posture. Returns
   `false` rather than throwing when the hub is out of range; the note stays
   `SyncState.Pending` and is retried. A note is never dropped for being out of range.
+
+Failed CloudOnly attempts are audited but neither synced nor saved as pending notes.
+The input stays available for an explicit retry. Degraded Hybrid routes still have a
+locally processed note, so those notes are saved and delivered when the hub is reachable.
 
 There is **no queue for cloud work**, deliberately. Deferring a *delivery* is useful —
 nobody is waiting on a note reaching the fab's server. Deferring an *answer* is not: a
@@ -478,17 +482,15 @@ etch03 chmbr B unif 94.2% recipe RX-7 ramp 4.5s - 3rd shift running soft, off sp
 ```
 
 **Watch:** the result block turns red — reason `vendor unreachable`, path `T3 ✖`, and a
-genuine `WSAHOST_NOT_FOUND` socket error underneath. The tray light goes
-`🔴 Vendor unreachable since HH:mm:ss`. The pending counter reads
-`🏢 1 awaiting the Central System`.
+readable message such as "Vendor unreachable after 4 attempts. Check the connection and
+try again." The raw socket exception remains in diagnostic output. The tray light goes
+`🔴 Vendor unreachable since HH:mm:ss`. No note is saved or queued: pending stays at **0**,
+and the input remains available for retry. The failed attempt still appears in the ledger.
 
 **Watch what else went quiet.** The hub is running perfectly on loopback and the pad cannot
 reach it either. That is deliberate: a cleanroom blocks the fab's own LAN exactly as well as
-it blocks the internet, so there is no loopback exemption in the handler. The note is *held*,
-not lost.
-
-> If `Chamber` comes back blank here, that is expected — with the vendor unreachable the
-> offline fallback parser wants the word "chamber", not "chmbr". Step 4 fills it in.
+it blocks the internet, so there is no loopback exemption in the handler. Successfully
+processed local notes in the next steps must wait for that connection to return.
 
 *Pinned by* `RoutingTests` · `#region Offline` and
 `A_sealed_cleanroom_cuts_the_fabs_own_network_too`.
@@ -500,7 +502,7 @@ note** again.
 
 **Watch:** badge `T1`, reason `policy: edge only`, ~2.9 s. Extracted:
 `ETCH-03 · B · uniformity · 94.2% · Watch`. The payload panel turns **green** —
-*"Nothing. No bytes crossed either boundary."* Pending → **2**.
+*"Nothing. No bytes crossed either boundary."* Pending → **1**.
 
 Same binary, same call site, same `IChatClient`. One line of policy changed. And the vendor
 was not tried and failed — it was **never asked**; the ledger says `policy: edge only`, not
@@ -521,7 +523,7 @@ etch06 chmbr A post clean particle count 9 per wafer, recipe RX-9 ramp 5.2s - ba
 ```
 
 **Watch:** it is **not** red. Path `T1`, reason `vendor unreachable`, an amber badge —
-*"cloud unavailable — local result stands"*. Pending → **3**.
+*"cloud unavailable — local result stands"*. Pending → **2**.
 
 Same wall, same second, same unreachable vendor as step 3 — and the opposite outcome, because
 this posture has a local path. The note is already structured, classified and masked; only
@@ -565,7 +567,7 @@ There is a **`Sync now`** button. Note where it is, then don't press it.
 
 Click the door toggle → `👷 At the bench`. **Hands off the mouse.**
 
-**Watch:** `🏢 3` → `2` → `1` → gone, within a few seconds, and every note flips to `SYNCED`.
+**Watch:** `🏢 2` → `1` → gone, within a few seconds, and every saved note flips to `SYNCED`.
 
 Nothing polled for a signal. `DeviceHost`'s drain loop simply tries to send whatever is
 pending every two seconds, oldest first, serially, stopping at the first failure — and a send
@@ -579,11 +581,11 @@ was a phase.
 Switch to the browser at <https://localhost:5100> and **refresh** — FabPad syncs over HTTP
 and does not push to this page, so the corpus counts are computed when the page renders.
 
-**Watch:** the header now reads **17 notes · 3 technicians · 2 cleanrooms** — the seed's
-12 notes from 2 technicians, plus the 5 you wrote. Three of those five only arrived a moment
-ago, in step 7.
+**Watch:** the header now reads **16 notes · 3 technicians · 2 cleanrooms** — the seed's
+12 notes from 2 technicians, plus the 4 successfully processed notes you wrote. Two of those
+four only arrived a moment ago, in step 7; the failed CloudOnly attempt was never queued.
 
-Expand **"All notes (17)"**. It is a feed, so it reads **newest first**: your five sit at the
+Expand **"All notes (16)"**. It is a feed, so it reads **newest first**: your four sit at the
 top, above the seed, each with a coloured severity dot in FabPad's own three colours and the
 technician's raw shorthand printed under the cleaned sentence. The seed is floated to land
 behind whatever time you started the app, which is what keeps that ordering meaningful —
@@ -732,7 +734,7 @@ Ready-made requests for all of these are in [`demo.http`](demo.http).
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/health` | `{ ok, notes, seeded, cloudConfigured, deployment }`. For a human at a terminal — **not** a reachability probe; nothing in the app polls it. |
-| `POST` | `/sync` | A note, in full. **Upsert by id**: a retried sync must not double-count a complaint, and a note first logged under `CloudOnly` (blank `toolId`, no local model ran) must be allowed to be replaced by its richer re-processing. |
+| `POST` | `/sync` | A processed note, in full. **Upsert by id**: a retried sync must not double-count a complaint, and a successfully reprocessed note must replace its earlier version. Failed routes do not call this endpoint. |
 | `POST` | `/report` | A finished shift report — real values restored, because the hub is in the fab's own jurisdiction. |
 | `GET` | `/reports` | Submitted reports, newest first. |
 | `POST` | `/query` | The fleet-wide question. `503` with the name of the file to create when T3 is unconfigured — it never fakes an answer. |
@@ -842,8 +844,9 @@ still runs and no longer means anything.
    Every model variant returns a different shape, and the fleet-wide finding groups by
    tool id: without this, one group of three becomes three groups of one and the trend
    disappears *silently*, behind a plausible-looking screen.
-7. **The hub receives every note, in full, in every posture** — including `EdgeOnly`. The
-   airgap goes around the fab, and the hub is inside it.
+7. **The hub receives every successfully processed note, in full, in every posture** —
+   including `EdgeOnly` and degraded `Hybrid`. Failed routes are audited, not saved or
+   queued. The airgap goes around the fab, and the hub is inside it.
 8. **The hub sends no prose to the vendor, ever.** Widening `AsDigest()` is widening wall 2.
 9. **Counts come from the store, never from the model.** The model writes the sentence.
 10. **Every route writes exactly one ledger entry, with the literal payload.** The audit

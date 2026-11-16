@@ -124,7 +124,7 @@ public sealed class Router(
             // not degraded**: the same failure under Hybrid merely costs the prose.
             sw.Stop();
             return await RecordAsync(note, Tier.T3VendorCloud, "T3 ✖", models.Cloud, "vendor unreachable",
-                sw.ElapsedMilliseconds, payload: "", output: null, error: Describe(ex), ct: ct);
+                sw.ElapsedMilliseconds, payload: "", output: null, error: VendorErrors.Describe(ex), ct: ct);
         }
     }
 
@@ -185,7 +185,7 @@ public sealed class Router(
             sw.Stop();
             return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
                 "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: note.Readable,
-                degraded: true, error: Describe(ex), ct: ct);
+                degraded: true, error: VendorErrors.Describe(ex), ct: ct);
         }
     }
 
@@ -216,7 +216,7 @@ public sealed class Router(
             sw.Stop();
             return await RecordAsync(note, Tier.T1Device, "T1", models.Device,
                 "vendor unreachable", sw.ElapsedMilliseconds, payload: "", output: note.Readable,
-                degraded: true, error: Describe(ex), ct: ct);
+                degraded: true, error: VendorErrors.Describe(ex), ct: ct);
         }
     }
 
@@ -260,7 +260,11 @@ public sealed class Router(
     {
         ledger.Write(new LedgerEntry(note.Id, tier, path, model, reason, (int)ms, payload, DateTimeOffset.UtcNow));
 
-        // 🏢 Sync to the Central System: every note, every posture, unredacted. It is
+        var result = new RouteResult(note, tier, path, reason, (int)ms, payload, output, degraded, error);
+        if (result.Failed)
+            return result;
+
+        // 🏢 Sync to the Central System: every successful note, every posture, unredacted. It is
         // the fab's own server, in the fab's own jurisdiction — you do not redact to
         // yourself, and redacting here would only make the fleet-wide finding worse.
         //
@@ -285,7 +289,7 @@ public sealed class Router(
         }
 
         var settled = note with { Sync = delivered ? SyncState.Synced : SyncState.Pending };
-        return new RouteResult(settled, tier, path, reason, (int)ms, payload, output, degraded, error);
+        return result with { Note = settled };
     }
 
     // The one method CloudOnly and the local path both call, differing only in which
@@ -323,11 +327,6 @@ public sealed class Router(
         }
         catch { return raw; }
     }
-
-    static string Describe(Exception ex) =>
-        ex is OperationCanceledException or TimeoutException
-            ? "Service unavailable — the request timed out."
-            : $"{ex.GetType().Name}: {ex.Message}";
 }
 
 /// <summary>

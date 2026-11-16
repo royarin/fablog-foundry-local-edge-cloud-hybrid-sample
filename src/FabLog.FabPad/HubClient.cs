@@ -49,7 +49,7 @@ public sealed class HubClient(HttpClient http) : INoteSink, IReportSink
     public event Action? Synced;
 
     /// <summary>
-    /// Called from <see cref="Router"/> on <b>every</b> note, on every path, after
+    /// Called from <see cref="Router"/> on every <b>successfully processed</b> note, after
     /// the stopwatch stops. Returns <c>false</c> rather than throwing, and the caller
     /// <b>queues</b> what did not land — from inside the cleanroom this always fails,
     /// and a note must never be lost for being out of range.

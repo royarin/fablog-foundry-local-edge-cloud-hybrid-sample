@@ -155,9 +155,7 @@ public sealed class ShiftReporter(
                 new ShiftReport(author, shift, deviceId, cleanroom, DateTimeOffset.UtcNow,
                     facts, spans, masked, Narrative: null, Final: brief,
                     notes.Count, (int)sw.ElapsedMilliseconds, CloudUsed: false,
-                    Error: ex is OperationCanceledException or TimeoutException
-                        ? "The narrative service timed out — the report stands without it."
-                        : $"{ex.GetType().Name}: {ex.Message}"),
+                    Error: $"{VendorErrors.Describe(ex)} The report stands without cloud prose."),
                 Tier.T1Device, "device", models.Device, "vendor unreachable", payload: "", ct);
         }
     }

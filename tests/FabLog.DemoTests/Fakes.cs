@@ -315,9 +315,9 @@ public sealed class Rig
         var result = await Router.ProcessAsync(
             new RouteRequest(raw, "K. Nagy", wantPolish, noteId, "PAD-07", "CR-2"), mode);
 
-        // The UI does exactly this: whatever came back is what the device now holds,
-        // including its SyncState — which is the backlog.
-        Upsert(result.Note);
+        // Failed attempts stay in the ledger, not in the device's notes or backlog.
+        if (!result.Failed)
+            Upsert(result.Note);
         return result;
     }
 

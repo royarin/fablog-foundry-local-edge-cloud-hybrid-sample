@@ -216,6 +216,7 @@ public class RoutingTests
 
         Assert.True(r.Failed);
         Assert.Equal("vendor unreachable", r.Reason);
+        Assert.Equal("Vendor unreachable. Check the connection and try again.", r.Error);
 
         // The prose is dead, but the fields are not: ExtractAsync/CleanAsync each
         // catch their own failed call and fall back to a deterministic, offline
@@ -228,6 +229,51 @@ public class RoutingTests
         Assert.Equal("T3 ✖", r.Path);
         Assert.Null(r.Output);
         Assert.False(r.Degraded);              // not even queued — nothing owns the retry
+        Assert.Empty(rig.HubSaw);
+        Assert.Empty(rig.Notes);
+        Assert.Equal(0, rig.PendingCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Failed_cloud_only_attempt_is_audited_but_never_delivered_or_queued(bool hubUp)
+    {
+        var vendor = new SwitchableChat { PadOnNetwork = false };
+        var sink = new FakeSink(hubUp);
+        var rig = new Rig(cloud: vendor, sink: sink);
+        const string raw =
+            "etch03 chmbr B unif 94.2% recipe RX-7 ramp 4.5s - 3rd shift running soft, off spec";
+
+        var result = await rig.LogAsync(raw, DemoMode.CloudOnly);
+
+        Assert.True(result.Failed);
+        Assert.Empty(sink.Received);
+        Assert.Empty(rig.Notes);
+        Assert.Equal(0, rig.PendingCount);
+        var entry = Assert.Single(rig.Ledger.Entries);
+        Assert.Equal(result.Note.Id, entry.NoteId);
+        Assert.Equal("T3 ✖", entry.Path);
+
+        vendor.PadOnNetwork = true;
+        sink.Up = true;
+
+        Assert.Equal(0, await rig.SyncPendingAsync());
+        Assert.Empty(sink.Received);
+    }
+
+    [Fact]
+    public async Task Failed_reprocessing_does_not_replace_an_existing_processed_note()
+    {
+        var rig = new Rig(cloud: new OfflineChat(), hubUp: false);
+        var processed = await rig.LogAsync(DeviceReplies.SeedNote, DemoMode.EdgeOnly);
+
+        var failed = await rig.LogAsync(
+            DeviceReplies.SeedNote, DemoMode.CloudOnly, noteId: processed.Note.Id);
+
+        Assert.True(failed.Failed);
+        Assert.Equal(processed.Note, Assert.Single(rig.Pending));
+        Assert.Equal(2, rig.Ledger.Entries.Count);
     }
 
     [Fact]

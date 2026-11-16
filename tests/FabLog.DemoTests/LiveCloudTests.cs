@@ -276,6 +276,8 @@ public class LiveCloudTests(ITestOutputHelper output)
         Assert.True(
             Unwrap(ex).Any(e => e is System.Net.Sockets.SocketException or HttpRequestException),
             $"expected a transport failure, got {ex.GetType().Name}");
+        Assert.Equal("Vendor unreachable after 4 attempts. Check the connection and try again.",
+            VendorErrors.Describe(ex));
 
         static IEnumerable<Exception> Unwrap(Exception? e)
         {

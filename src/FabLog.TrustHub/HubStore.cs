@@ -203,11 +203,8 @@ public sealed class HubStore
     /// <para>
     /// ⚠️ <b>Upsert, not insert-or-reject, and the difference is not cosmetic.</b>
     /// Rejecting an id it had already seen would be correct if a note synced
-    /// exactly once. Every note syncs the moment it is written — so a note first
-    /// logged in CloudOnly arrives with a blank <c>ToolId</c> and <c>Severity</c>
-    /// (there was no local model to extract them), and re-processing the same note
-    /// in Hybrid would be <i>rejected</i>, leaving the blank row in place and
-    /// silently breaking the trend query's grouping.
+    /// exactly once. A successfully reprocessed note may have corrected metadata
+    /// or prose; rejecting it would leave the earlier version in place.
     /// </para>
     /// <para>
     /// Replacing in place keeps the property that actually matters — a retried

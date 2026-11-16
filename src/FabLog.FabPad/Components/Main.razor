@@ -189,6 +189,7 @@
                     {
                         @* CloudOnly: no local path exists to fall back to, so nothing catches this. *@
                         <p class="error">@last.Error</p>
+                        <p class="muted">Not saved or queued. Your text is still above; retry when a model is available.</p>
                     }
                     else
                     {
@@ -486,6 +487,9 @@
                     Cleanroom: Host.Options.Cleanroom),
                 Host.Options.Mode);
 
+            last = result;
+            if (result.Failed) return;
+
             // Keep the masked form exactly as sent — the payload panel renders the
             // literal string the hub received, never a re-derivation of it.
             var masked = result.Note.Spans.Count > 0
@@ -493,8 +497,7 @@
                 : result.Note.Raw;
 
             Host.Notes.Upsert(result.Note, masked);
-            last = result;
-            if (!result.Failed) raw = "";
+            raw = "";
         }
         finally { busy = false; }
     }

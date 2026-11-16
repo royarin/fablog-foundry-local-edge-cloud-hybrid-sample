@@ -70,10 +70,10 @@ public class EndToEndTests
         Assert.Null(dead.Output);
         Assert.Equal("T3 ✖", dead.Path);
 
-        // Nothing was LOST, though — the note is held, waiting for a server it will
-        // reach in thirty seconds. The Central System's count has not moved.
+        // The failed attempt is audited, but is not a processed note to deliver.
         Assert.Equal(13, hub.Count);
-        Assert.Equal(1, device.PendingCount);
+        Assert.Equal(0, device.PendingCount);
+        Assert.DoesNotContain(device.Notes, n => n.Id == dead.Note.Id);
 
         // ══ 3 · edge only · it just works ═══════════════════════════════════
         var edge = await device.LogAsync(DeviceReplies.SeedNote, DemoMode.EdgeOnly);
@@ -88,7 +88,7 @@ public class EndToEndTests
         // SwitchableChat ever records it, and step 3 doesn't touch the cloud.)
         Assert.False(edge.Degraded);
         Assert.Equal(3, vendor.Received.Count);
-        Assert.Equal(2, device.PendingCount);        // …but both notes still owe the server
+        Assert.Equal(1, device.PendingCount);        // the locally processed note owes the server
         var theNote = edge.Note;                      // ← the third complaint
 
         // ══ 4 · the honest refusal ══════════════════════════════════════════
@@ -120,7 +120,7 @@ public class EndToEndTests
 
         // Re-processing did not inflate the backlog: pending is a property of a
         // note, so the same note cannot be owed twice.
-        Assert.Equal(2, device.PendingCount);
+        Assert.Equal(1, device.PendingCount);
 
         // ══ 6 · out of the cleanroom · the pending notes go, by themselves ══
         vendor.PadOnNetwork = true;
@@ -128,16 +128,17 @@ public class EndToEndTests
 
         var delivered = await device.SyncPendingAsync();
 
-        Assert.Equal(2, delivered);
+        Assert.Equal(1, delivered);
         Assert.Equal(0, device.PendingCount);
 
-        // ⭐ That is what completes the picture: 13 → 15.
-        Assert.Equal(15, hub.Count);
+        // ⭐ That is what completes the picture: 13 → 14.
+        Assert.Equal(14, hub.Count);
+        Assert.DoesNotContain(hub.All, n => n.Id == dead.Note.Id);
 
         // ══ 7 · the question no device could answer ═════════════════════════
         // And it only became answerable once the backlog reached the hub.
         var after = await brain.AnalyseAsync(question);
-        Assert.Equal(15, after.CorpusSize);
+        Assert.Equal(14, after.CorpusSize);
         Assert.Equal(3, after.Finding!.Mentions);
         Assert.Equal(3, after.Finding.Technicians);
         Assert.Equal(Severity.Escalate, after.Finding.Verdict);
@@ -188,13 +189,12 @@ public class EndToEndTests
     }
 
     [Fact]
-    public async Task The_central_system_receives_every_note_in_every_posture_once_back_in_range()
+    public async Task The_central_system_receives_only_processed_notes_once_back_in_range()
     {
-        // 🏢 Three postures, one trip into the cleanroom, six notes — and the
-        // Central System ends up with all six, in full, unredacted.
+        // 🏢 Three postures, six attempts: only the four locally processed notes
+        // can be delivered. The two failed CloudOnly attempts stay in the ledger.
         //
-        // ⚠️ NOT "they arrive immediately" — they cannot: the server is trusted,
-        // and it is in another room. What is guaranteed is that none is ever LOST.
+        // The server is trusted but unreachable inside the cleanroom.
         var hub = new HubStore(SeedPath);
         var vendor = new SwitchableChat { PadOnNetwork = false };
         var central = new HubSink(hub, "Night 2026-09-12") { Reachable = false };
@@ -206,16 +206,17 @@ public class EndToEndTests
             await device.LogAsync(DeviceReplies.BenchNote, mode);
         }
 
-        // Sealed: nothing has arrived, and nothing has been dropped.
+        // Sealed: nothing has arrived, and only processed notes are pending.
         Assert.Equal(12, hub.Count);
-        Assert.Equal(6, device.PendingCount);
+        Assert.Equal(4, device.PendingCount);
+        Assert.Equal(6, device.Ledger.Entries.Count);
 
         // Back in range: everything lands, on its own.
         vendor.PadOnNetwork = true;
         central.Reachable = true;
-        await device.SyncPendingAsync();
+        Assert.Equal(4, await device.SyncPendingAsync());
 
-        Assert.Equal(18, hub.Count);
+        Assert.Equal(16, hub.Count);
         Assert.Equal(0, device.PendingCount);
         Assert.All(hub.All.Skip(12), n => Assert.DoesNotContain("⟦", n.Text));
     }
@@ -272,9 +273,10 @@ public class EndToEndTests
         Assert.NotNull(degraded.Output);                 // the local answer stands
         Assert.Equal("ETCH-03", degraded.Note.ToolId);
 
-        // Both are still owed to the Central System — that backlog is about
-        // DISTANCE and has nothing to do with either posture.
-        Assert.Equal(2, device.PendingCount);
+        // Only Hybrid produced a note. Its delivery waits; the failed CloudOnly
+        // attempt remains in the audit ledger without entering the backlog.
+        Assert.Equal(degraded.Note, Assert.Single(device.Pending));
+        Assert.Equal(2, device.Ledger.Entries.Count);
     }
 
     [Fact]

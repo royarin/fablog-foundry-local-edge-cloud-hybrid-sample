@@ -62,7 +62,7 @@ public sealed class HubBrain(HubStore store, IChatClient cloud, string modelName
         {
             sw.Stop();
             return new TrendResult(null, [], store.Count, (int)sw.ElapsedMilliseconds, modelName,
-                ex is InvalidOperationException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
+                VendorErrors.Describe(ex));
         }
         sw.Stop();
 
