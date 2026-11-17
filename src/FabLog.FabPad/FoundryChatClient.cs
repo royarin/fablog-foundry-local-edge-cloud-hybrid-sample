@@ -23,8 +23,9 @@ public sealed class FoundryChatClient(OpenAIChatClient chat, string modelId) : I
     public string ModelId => modelId;
 
     /// <summary>Creates the client for an already-loaded model or variant. Call <c>LoadAsync</c> first.</summary>
-    public static async Task<FoundryChatClient> CreateAsync(IModel model, string modelId) =>
-        new(await model.GetChatClientAsync(null), modelId);
+    public static async Task<FoundryChatClient> CreateAsync(
+        IModel model, string modelId, CancellationToken ct = default) =>
+        new(await model.GetChatClientAsync(ct), modelId);
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)

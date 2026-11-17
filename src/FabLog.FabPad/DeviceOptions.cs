@@ -91,31 +91,19 @@ public sealed class T1Options
 {
     public string ModelAlias { get; set; } = "qwen2.5-1.5b";
 
-    /// <summary>The smaller model. Switching is a config edit, not a rebuild.</summary>
+    /// <summary>The smaller model, tried if the primary alias has no working compatible variant.</summary>
     public string FallbackAlias { get; set; } = "qwen2.5-0.5b";
 
     /// <summary>
-    /// ⚠️ <b>Measured, not assumed.</b> The obvious rule — "always resolve by alias,
-    /// never by model ID" — silently loses on a machine with both a discrete and an
-    /// integrated GPU: registering the OpenVINO provider makes alias resolution
-    /// prefer <c>…-openvino-gpu</c>, which is the <i>Intel iGPU</i>, while the NVIDIA
-    /// card sits idle behind <c>…-cuda-gpu</c>. That is roughly a 3× difference in
-    /// first-token latency.
-    /// <para>
-    /// The retained manual selector uses this list, most-preferred first. It is
-    /// currently disabled in favor of the SDK's default resolution.
-    /// </para>
+    /// Reference-only preference order for the unused manual selector.
+    /// Startup preserves Foundry's compatible variant order instead.
     /// </summary>
-    // ⚠️ Left empty on purpose. appsettings.json is the single source of truth for
-    // this list — Microsoft.Extensions.Configuration's array binding *appends* to a
-    // non-empty default instead of replacing it (dotnet/runtime#46988, #70150). A
-    // non-empty default here would double every entry: "cuda-gpu → … → generic-cpu
-    // → cuda-gpu → …".
+    // Keep the default empty: configuration array binding appends to non-empty defaults.
     public string[] VariantPreference { get; set; } = [];
 
     /// <summary>
-    /// Pin a model variant when the retained manual selector is enabled. Currently
-    /// inactive because the SDK selects the default variant.
+    /// Optional strict variant ID or ID fragment (for example, cuda-gpu).
+    /// Empty preserves Foundry's order; non-empty disables automatic fallback. Requires a restart.
     /// </summary>
     public string ForceVariant { get; set; } = "";
 }

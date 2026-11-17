@@ -46,6 +46,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Test startup selection without referencing the Windows SDK or WPF shell. -->
+    <Compile Include="..\..\src\FabLog.FabPad\ModelVariantSelection.cs" Link="ModelVariantSelection.cs" />
     <Using Include="Xunit" />
     <Using Include="FabLog.Core" />
   </ItemGroup>

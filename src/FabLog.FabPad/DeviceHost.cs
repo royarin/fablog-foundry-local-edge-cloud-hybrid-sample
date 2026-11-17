@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using FabLog.Core;
 using FabLog.FabPad.Demo;
@@ -130,7 +131,7 @@ public sealed class DeviceHost
         {
             using var loggerFactory = LoggerFactory.Create(b => b.AddDebug());
             var log = loggerFactory.CreateLogger("FabLog");
-            var (t1, id) = await LoadDeviceClientAsync(log);
+            var (t1, id) = await LoadDeviceClientAsync(log, ct);
 
             // ── Two tiers on the routing axis, one interface ───────────────────
             //
@@ -165,6 +166,10 @@ public sealed class DeviceHost
             Ready = true;
             Report("ready");
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             StartupError = $"{ex.GetType().Name}: {ex.Message}";
@@ -172,54 +177,112 @@ public sealed class DeviceHost
         }
     }
 
-    async Task<(IChatClient Client, string ModelId)> LoadDeviceClientAsync(ILogger log)
+    async Task<(IChatClient Client, string ModelId)> LoadDeviceClientAsync(ILogger log, CancellationToken ct)
     {
         Report("starting Foundry Local…");
 
         // AppName must not contain dots.
-        await FoundryLocalManager.CreateAsync(new FoundryConfiguration { AppName = "FabLog" }, log, null);
+        await FoundryLocalManager.CreateAsync(new FoundryConfiguration { AppName = "FabLog" }, log, ct);
         var mgr = FoundryLocalManager.Instance;
 
         Report("registering execution providers…");
         Hardware.Capture(mgr.DiscoverEps());
         var eps = await mgr.DownloadAndRegisterEpsAsync(
-            (name, pct) => Report($"registering {name} — {pct:F0}%"), null);
-        Hardware.Capture(mgr.DiscoverEps(), eps.FailedEps);
+            (name, pct) => Report($"registering {name} — {pct:F0}%"), ct);
+        var discovered = mgr.DiscoverEps();
+        Hardware.Capture(discovered, eps.FailedEps);
+        foreach (var failed in eps.FailedEps)
+            log.LogWarning("Execution provider {Provider} could not be registered.", failed);
+        var registered = discovered.Where(e => e.IsRegistered).Select(e => e.Name)
+            .Concat(eps.RegisteredEps).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
-        Report($"resolving {Options.T1.ModelAlias}…");
-        var catalog = await mgr.GetCatalogAsync(null);
-        var model = await catalog.GetModelAsync(Options.T1.ModelAlias, null);
-        if (model is null && Options.T1.FallbackAlias is { Length: > 0 } fallback)
+        var catalog = await mgr.GetCatalogAsync(ct);
+        var failures = new List<Exception>();
+        var forcedVariant = Options.T1.ForceVariant;
+        var isForced = !string.IsNullOrWhiteSpace(forcedVariant);
+        var aliases = (isForced ? new[] { Options.T1.ModelAlias }
+            : new[] { Options.T1.ModelAlias, Options.T1.FallbackAlias })
+            .Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var alias in aliases)
         {
-            Report($"{Options.T1.ModelAlias} unavailable — falling back to {fallback}…");
-            model = await catalog.GetModelAsync(fallback, null);
+            ct.ThrowIfCancellationRequested();
+            Report($"resolving {alias}…");
+            var model = await catalog.GetModelAsync(alias, ct);
+            if (model is null)
+            {
+                if (isForced)
+                    throw new InvalidOperationException(
+                        $"Cannot force variant '{forcedVariant}': model alias '{alias}' is not in the catalogue.");
+                log.LogWarning("Model alias {Alias} is not in the catalogue.", alias);
+                failures.Add(new InvalidOperationException($"Model alias '{alias}' is not in the catalogue."));
+                continue;
+            }
+
+            var variants = model.Variants.ToDictionary(v => v.Id);
+            // Use Core's ranking, not the alias wrapper's cache-biased selected variant.
+            var candidates = ModelVariantSelection.SelectCandidates(
+                model.Variants.Select(v => new ModelVariantInfo(v.Id, v.Info.Runtime?.ExecutionProvider)),
+                registered, forcedVariant);
+            if (isForced)
+                log.LogInformation("ForceVariant {ForceVariant} selected {ModelId}; automatic fallback is disabled.",
+                    forcedVariant, candidates[0].Id);
+            else
+                foreach (var skipped in variants.Keys.Except(candidates.Select(c => c.Id)))
+                    log.LogInformation("Skipping {ModelId}: its required execution provider is not registered.", skipped);
+            if (candidates.Count == 0)
+                failures.Add(new InvalidOperationException($"No compatible variants for '{alias}'."));
+
+            foreach (var candidate in candidates)
+            {
+                ct.ThrowIfCancellationRequested();
+                var target = variants[candidate.Id];
+                var loaded = false;
+                try
+                {
+                    if (!await target.IsCachedAsync(ct))
+                    {
+                        Report($"downloading {target.Id}…");
+                        await target.DownloadAsync(p => Report($"downloading {target.Id} — {p:P0}"), ct);
+                    }
+
+                    Report($"loading {target.Id}…");
+                    await target.LoadAsync(ct);
+                    loaded = true;
+                    var client = await FoundryChatClient.CreateAsync(target, target.Id, ct);
+                    ct.ThrowIfCancellationRequested();
+                    Hardware.Resolve(target.Id, ProviderOf(target.Id));
+                    log.LogInformation("Loaded {ModelId} with {Provider}.", target.Id, candidate.ExecutionProvider);
+                    return (client, target.Id);
+                }
+                catch (Exception ex) when (ex is FoundryLocalException or InvalidOperationException
+                    or HttpRequestException or IOException)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    log.LogWarning(ex, "Could not initialize {ModelId} with {Provider}.",
+                        target.Id, candidate.ExecutionProvider);
+                    if (loaded)
+                    {
+                        try { await target.UnloadAsync(ct); }
+                        catch (FoundryLocalException unloadError)
+                        {
+                            log.LogWarning(unloadError, "Could not unload failed model {ModelId}.", target.Id);
+                        }
+                    }
+                    if (isForced)
+                        throw new InvalidOperationException(
+                            $"Forced variant '{target.Id}' failed to initialize. No fallback will be attempted: {ex.Message}", ex);
+                    failures.Add(new InvalidOperationException($"Could not initialize '{target.Id}': {ex.Message}", ex));
+                    Report($"{target.Id} failed — trying the next compatible model…");
+                }
+            }
         }
-        if (model is null)
-            throw new InvalidOperationException(
-                $"Neither '{Options.T1.ModelAlias}' nor '{Options.T1.FallbackAlias}' is in the Foundry Local catalogue. " +
-                "Run `foundry model download qwen2.5-1.5b` first.");
 
-        // Use the SDK default. SelectVariant is retained below for machines where
-        // automatic resolution chooses a slower device.
-        // var (target, id) = SelectVariant(model);
-        var (target, id) = (model, model.Id);
-        Hardware.Resolve(id, ProviderOf(id));
-
-        if (!await target.IsCachedAsync(null))
-        {
-            Report($"downloading {id}…");
-            await target.DownloadAsync(p => Report($"downloading {id} — {p:P0}"), null);
-        }
-
-        Report($"loading {id}…");
-        await target.LoadAsync(null);
-
-        return (await FoundryChatClient.CreateAsync(target, id), id);
+        throw new AggregateException("No local model could be initialized with the available execution providers.", failures);
     }
 
     /// <summary>
-    /// Optional manual selection, currently unused. Retained because SDK default
-    /// resolution selected the integrated GPU on a previous two-GPU machine.
+    /// Reference-only manual override, deliberately not called by startup.
+    /// Before enabling, restrict its input to compatible variants and retain load-failure retries.
     /// </summary>
     (IModel Model, string Id) SelectVariant(IModel model)
     {
@@ -237,7 +300,7 @@ public sealed class DeviceHost
             if (hit is not null) return (hit, hit.Id);
         }
 
-        return (model, model.Id);   // nothing matched — the SDK's own choice
+        return (model, model.Id);
     }
 
     static string ProviderOf(string modelId) =>
