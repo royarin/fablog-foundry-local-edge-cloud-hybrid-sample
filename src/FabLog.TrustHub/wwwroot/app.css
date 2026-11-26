@@ -112,3 +112,30 @@ ul.chips li { background: var(--panel); border: 1px solid var(--line); border-ra
 .error { background: #2a1a1a; border-left: 5px solid var(--escalate); border-radius: 8px; padding: 16px 20px; color: #ffd9d5; }
 
 #blazor-error-ui { display: none; }
+
+/* ── Shift handover brief ───────────────────────────────────────────────── */
+.ask button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+.ask button.secondary:disabled { color: var(--dim); }
+.handover { margin: 8px 0 28px; }
+.handover .hsource { display: flex; gap: 12px; align-items: baseline; margin-bottom: 14px; }
+.handover .src { font-weight: 700; padding: 2px 10px; border-radius: 12px; font-size: 14px; }
+.handover .src.cloud { background: #1d3a5f; color: #cfe3ff; }
+.handover .src.hub { background: #3a2f12; color: #ffe2a0; }
+.handover .check { background: var(--panel); border-left: 5px solid var(--line); border-radius: 8px; padding: 14px 20px; margin-bottom: 12px; }
+.handover .check.conf-high { border-left-color: var(--escalate); }
+.handover .check.conf-medium { border-left-color: var(--watch); }
+.handover .check.conf-low { border-left-color: var(--routine); }
+.handover .check .head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.handover .rank { font-size: 22px; font-weight: 700; }
+.handover .badge { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); }
+.handover .badge.conf-high { color: var(--escalate); border-color: var(--escalate); }
+.handover .badge.conf-medium { color: var(--watch); border-color: var(--watch); }
+.handover .badge.conf-low { color: var(--routine); border-color: var(--routine); }
+.handover .action { font-size: 19px; margin: 10px 0 4px; }
+.handover .why { margin: 0 0 8px; color: var(--dim); }
+.handover .ev { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.handover .chip { padding: 1px 9px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-family: monospace; }
+.handover .chip:hover { border-color: #4c7dff; }
+.handover table.compare tr.differ td { color: var(--watch); }
+.handover .rejections { color: var(--dim); }
+.handover .evidence .raw { display: block; }

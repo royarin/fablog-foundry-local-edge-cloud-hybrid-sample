@@ -13,6 +13,7 @@
 @page "/"
 @rendermode InteractiveServer
 @inject HubBrain Brain
+@inject HandoverBrain Handover
 
 <div class="desk">
     <header>
@@ -51,7 +52,127 @@
         <input @bind="question" @bind:event="oninput" @onkeydown="OnKey"
                placeholder="anything odd about ETCH-03 today?" autofocus />
         <button @onclick="AskAsync" disabled="@busy">@(busy ? "…" : "Ask")</button>
+        @if (Handover.Enabled)
+        {
+            <button class="secondary" @onclick="BriefAsync" disabled="@hbusy">@(hbusy ? "…" : "Shift handover brief")</button>
+        }
     </div>
+
+    @*
+        🔁 Shift handover brief — the second hub workload. The hub computes every fact
+        first (drift in sigma, trend, PM state, lots at risk), the cloud ranks what to
+        check, and the hub validates the answer against what it sent. The hub's own
+        ranking is ALWAYS shown next to the cloud's: the comparison is the point.
+        Only rendered when Hub:Features:ShiftHandover is on.
+    *@
+    @if (hbusy)
+    {
+        <p class="muted">Computing facts on the hub… asking the cloud…</p>
+    }
+    else if (brief is { Source: not "disabled" } b)
+    {
+        <div class="handover">
+            <h2>Shift handover brief — what to check first</h2>
+            <div class="hsource">
+                <span class="src @(b.FromCloud ? "cloud" : "hub")">@b.SourceLabel</span>
+                <span class="dim">@b.ElapsedMs ms · @b.At.ToString("HH:mm:ss")</span>
+                @if (b.FallbackReason is { } why)
+                {
+                    <span class="dim">· @why</span>
+                }
+            </div>
+
+            @foreach (var c in b.Checks)
+            {
+                var hub = b.HubRanking.FirstOrDefault(h => h.Tool == c.Tool && h.Chamber == c.Chamber);
+                <div class="check conf-@c.Confidence">
+                    <div class="head">
+                        <span class="rank">#@c.Rank</span>
+                        <b>@c.Tool chamber @c.Chamber</b>
+                        <span class="badge conf-@c.Confidence">@c.Confidence confidence</span>
+                        @if (hub is not null)
+                        {
+                            <span class="dim">hub rank @hub.Rank · score @hub.Score</span>
+                        }
+                    </div>
+                    <p class="action">@c.Action</p>
+                    <p class="why">@c.Why</p>
+                    <div class="ev">
+                        @foreach (var id in c.Evidence)
+                        {
+                            <a class="chip" href="#ev-@id">@id</a>
+                        }
+                        @if (c.WouldChangeIf.Length > 0)
+                        {
+                            <span class="dim">would change if: @c.WouldChangeIf</span>
+                        }
+                    </div>
+                </div>
+            }
+
+            <h3>Cloud vs hub ranking</h3>
+            <table class="sources compare">
+                <thead><tr><th>#</th><th>@(b.FromCloud ? "Cloud" : "Shown (hub)")</th><th>Hub ranking</th><th>Hub score</th></tr></thead>
+                <tbody>
+                    @for (var i = 0; i < b.HubRanking.Count; i++)
+                    {
+                        var h = b.HubRanking[i];
+                        var pick = i < b.Checks.Count ? b.Checks[i] : null;
+                        <tr class="@(pick is not null && pick.Tool == h.Tool && pick.Chamber == h.Chamber ? "agree" : "differ")">
+                            <td>@(i + 1)</td>
+                            <td>@(pick is null ? "—" : $"{pick.Tool} {pick.Chamber}")</td>
+                            <td>@h.Tool @h.Chamber <span class="dim">@h.Metric</span></td>
+                            <td>@h.Score</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (b.Rejections.Count > 0)
+            {
+                <h3>What the hub rejected or edited</h3>
+                <ul class="rejections">
+                    @foreach (var line in b.Rejections)
+                    {
+                        <li>@line</li>
+                    }
+                </ul>
+            }
+
+            @*
+                The evidence ids on the cards above land here. The derived line is what
+                the vendor saw; the rows under it are the hub's own notes (the supervisor
+                is inside the fab, so they see the real text) and were NOT sent.
+            *@
+            <h3>Evidence — the derived lines, and the notes the hub holds behind them</h3>
+            <table class="sources evidence">
+                <thead><tr><th>Id</th><th>Tool</th><th>Derived signal (what the vendor saw)</th></tr></thead>
+                <tbody>
+                    @foreach (var e in b.Evidence)
+                    {
+                        <tr id="ev-@e.Id">
+                            <td><b>@e.Id</b></td>
+                            <td class="dim">@e.Tool @e.Chamber</td>
+                            <td>
+                                @e.Line
+                                @foreach (var n in Brain.Store.All.Where(n => e.Notes.Contains(n.Id)))
+                                {
+                                    <span class="raw" title="Held by the hub, not sent">@n.Author · @n.Severity · @n.Text</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <h2>What crossed the border — everything the vendor received</h2>
+            <pre class="digest">@b.Digest</pre>
+            <p class="footnote">
+                Derived signals, not raw values: no note text, no names, no baselines, no readings.
+                Every number in the answer above was either in this block or removed.
+            </p>
+        </div>
+    }
 
     @*
         🔍 Content, not just aggregates. Collapsed by default so it never competes
@@ -195,6 +316,18 @@
     bool busy;
     TrendResult? result;
     string? error;
+    bool hbusy;
+    HandoverResult? brief;
+
+    protected override void OnInitialized() => brief = Handover.Last;
+
+    async Task BriefAsync()
+    {
+        if (hbusy) return;
+        hbusy = true;
+        try { brief = await Handover.BriefAsync(); }
+        finally { hbusy = false; }
+    }
 
     int Technicians => Brain.Store.All.Select(n => n.Author).Distinct().Count();
 

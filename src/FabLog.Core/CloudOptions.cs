@@ -19,6 +19,7 @@ namespace FabLog.Core;
 /// </summary>
 public sealed class T3Options
 {
+    public string Provider { get; set; } = "AzureOpenAI";
     public string Endpoint { get; set; } = "";
     public string Deployment { get; set; } = "";
     public string ApiKey { get; set; } = "";

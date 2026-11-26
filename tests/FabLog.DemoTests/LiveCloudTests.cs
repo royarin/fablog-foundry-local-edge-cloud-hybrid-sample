@@ -242,6 +242,55 @@ public class LiveCloudTests(ITestOutputHelper output)
     }
 
     [LiveFact]
+    public async Task The_real_model_ranks_the_shift_handover_from_derived_signals_alone()
+    {
+        // 🔁 The question a fake cannot answer: given ONLY derived signals — drift in
+        // sigma, trend, PM state, lot counts, no note text, no raw reading — does a real
+        // deployment return JSON the hub can validate, citing ids it was actually given?
+        var o = Config();
+        var store = new HubStore(SeedPath);
+        store.Add(new HubNote(Guid.NewGuid(), "T. Szabó", "Morning 2026-09-12", "ETCH-02", "A", "vacuum",
+            Severity.Routine, "ETCH-02 chamber A vacuum steady after the PM ticket was raised.",
+            DateTimeOffset.Parse("2026-09-12T10:00:00Z")));
+
+        // Same timeout rule as Program.cs: a ~400-token JSON answer needs more than the short-reply default.
+        var vendor = Cloud.Create(new T3Options
+        {
+            Endpoint = o.Endpoint, Deployment = o.Deployment, ApiKey = o.ApiKey,
+            TimeoutSeconds = Math.Max(o.TimeoutSeconds, 25),
+        });
+        var brain = new HandoverBrain(
+            store,
+            HandoverContext.Load(Path.Combine(AppContext.BaseDirectory, "Data", "handover-context.json")),
+            vendor, o.Deployment, new HubFeatures { ShiftHandover = true },
+            now: () => DateTimeOffset.Parse("2026-09-12T12:20:00Z"));
+
+        var r = await brain.BriefAsync();
+
+        output.WriteLine($"digest sent:\n{r.Digest}\n");
+        output.WriteLine($"{r.ElapsedMs} ms · {r.SourceLabel} · parsed={r.ReplyParsed}");
+        foreach (var c in r.Checks)
+            output.WriteLine($"#{c.Rank} {c.Tool} {c.Chamber} [{c.Confidence}] ev={string.Join(",", c.Evidence)}\n   {c.Action}\n   {c.Why}");
+        foreach (var line in r.Rejections) output.WriteLine($"rejected/edited: {line}");
+        output.WriteLine($"hub ranking: {string.Join(" > ", r.HubRanking.Select(h => $"{h.Tool} {h.Chamber}={h.Score}"))}");
+
+        Assert.True(r.FromCloud, $"expected a validated cloud ranking, got: {r.FallbackReason}");
+        Assert.NotEmpty(r.Checks);
+
+        // Everything it cites, the hub had sent — and belongs to the chamber it is cited for.
+        var sent = r.Evidence.ToDictionary(e => e.Id);
+        Assert.All(r.Checks, c => Assert.All(c.Evidence, id =>
+        {
+            Assert.True(sent.ContainsKey(id), $"{id} was never sent");
+            Assert.Equal((c.Tool, c.Chamber), (sent[id].Tool, sent[id].Chamber));
+        }));
+
+        // Nothing the vendor was handed is a sentence anybody wrote.
+        Assert.All(store.All, n => Assert.DoesNotContain(n.Text, r.Digest));
+        Assert.DoesNotContain("RX-7", r.Digest);
+    }
+
+    [LiveFact]
     public async Task A_wrong_key_fails_as_an_error_not_as_an_answer()
     {
         var o = Config();

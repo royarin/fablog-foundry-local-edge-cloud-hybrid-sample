@@ -4,6 +4,7 @@ using System.Net.Http;
 using Azure.AI.OpenAI;
 using FabLog.Core;
 using Microsoft.Extensions.AI;
+using OpenAI;
 
 namespace FabLog.FabPad;
 
@@ -42,9 +43,9 @@ public sealed class CloudClient : IChatClient, IConnectivity
             Timeout = TimeSpan.FromSeconds(Math.Max(options.TimeoutSeconds, 1)),
         };
 
-        _inner = !Configured
-            ? new NotConfiguredChatClient()
-            : new AzureOpenAIClient(
+        _inner = !Configured ? new NotConfiguredChatClient() : options.Provider switch
+        {
+            "AzureOpenAI" => new AzureOpenAIClient(
                     options.ResourceEndpoint,
                     new ApiKeyCredential(options.ApiKey),
                     new AzureOpenAIClientOptions
@@ -53,7 +54,19 @@ public sealed class CloudClient : IChatClient, IConnectivity
                         NetworkTimeout = TimeSpan.FromSeconds(options.TimeoutSeconds),
                     })
                 .GetChatClient(options.Deployment)
-                .AsIChatClient();
+                .AsIChatClient(),
+            "FoundryLocal" => new OpenAIClient(
+                    new ApiKeyCredential(options.ApiKey),
+                    new OpenAIClientOptions
+                    {
+                        Endpoint = new Uri(options.Endpoint),
+                        Transport = new HttpClientPipelineTransport(http),
+                        NetworkTimeout = TimeSpan.FromSeconds(options.TimeoutSeconds),
+                    })
+                .GetChatClient(options.Deployment)
+                .AsIChatClient(),
+            _ => throw new InvalidOperationException($"Unknown T3 provider '{options.Provider}'. Use AzureOpenAI or FoundryLocal."),
+        };
     }
 
     /// <summary>False when <c>FabLog:T3</c> still holds template placeholders — see <see cref="NotConfiguredChatClient"/>.</summary>
