@@ -64,3 +64,32 @@ Content-Type: application/json
 {
   "question": "anything odd about ETCH-03 today?"
 }
+
+### Shift handover brief — same call FabDesk's "Shift handover brief" button makes.
+### Only exists when Hub:Features:ShiftHandover is true (404 otherwise). Set it in
+### src/FabLog.TrustHub/appsettings.Development.json. Add
+### "ForceHandoverFallback": true beside it to show the hub's own ranking with no cloud call.
+POST {{baseUrl}}/handover
+
+### The stage conflict: a second technician logs ETCH-02 A vacuum as Routine, against
+### M. Farkas's Watch from the seed. Adds a "conflicting signals" line (x1) to the handover
+### digest. Timestamp is relative to now so it stays inside the 36 h window; /reset removes it.
+### (REST Client / VS syntax. In a shell, put an ISO-8601 time of the last hour in "at".)
+POST {{baseUrl}}/sync
+Content-Type: application/json
+
+{
+  "id": "00000000-0000-0000-0000-0000000000c1",
+  "author": "T. Szabó",
+  "shift": "Morning 2026-09-14",
+  "deviceId": "PAD-05",
+  "cleanroom": "CR-2",
+  "toolId": "ETCH-02",
+  "chamber": "A",
+  "metric": "vacuum",
+  "severity": "Routine",
+  "text": "ETCH-02 chamber A vacuum steady after the PM ticket was raised.",
+  "at": "{{$datetime iso8601 -30 m}}",
+  "tags": ["routine-check"],
+  "raw": "etch02 chmbr A vac steady after pm ticket"
+}

@@ -4,8 +4,8 @@ using Microsoft.Extensions.AI;
 namespace FabLog.Core;
 
 /// <summary>
-/// Six prompts — four the device initiates, one for the shift report, one the
-/// Central System owns.
+/// Seven prompts — four the device initiates, one for the shift report, two the
+/// Central System owns (the fleet trend and the shift handover brief).
 /// <para>
 /// Designed for a 1.5B: extraction into a fixed schema, classification into a
 /// closed enum, short constrained rewrites. Never free-form summarisation on the
@@ -116,6 +116,47 @@ public static class Prompts
         shifts, in digits or in words. Say "multiple technicians", never "three technicians".
         If no tool is reported by more than one technician, set verdict to "Routine".
         """;
+
+    // ── 7 · the hub's second prompt — the shift handover brief ──────────────
+    //
+    // ⚠️ Same rule as Trend: what the vendor receives is DERIVED signals (drift in
+    // sigma, trend, PM state, lot counts) with evidence ids. No note text, no raw
+    // process value. The hub validates every id and every digit in the reply.
+    public const string Handover = """
+        You advise a semiconductor fab shift supervisor. You are given a digest of DERIVED
+        signals for the next shift. Each line starts with an evidence id (n1, pm2, wip3, x1...).
+        There is no note text and no raw process value; do not ask for either or invent them.
+        "drift" is in sigma versus the chamber's own baseline; "trend" says whether the last
+        three shifts are moving the wrong way.
+
+        Task: answer "What should the next shift check first, and why?"
+        Rank the 2-3 most important checks. Weigh competing evidence: a drifting chamber with a
+        recent PM is a different problem from one that is overdue for PM; lots at risk raise
+        urgency; conflicting signals lower your confidence. If two chambers are close, put the
+        one with more lots at risk first.
+
+        Rules:
+        - Use only tool/chamber pairs and evidence ids that appear in the digest.
+        - Every check must cite at least two evidence ids that belong to that tool/chamber.
+        - Quote a number only if it appears in the digest, exactly as written. Never compute,
+          round, convert or infer any other number.
+        - "action" is one imperative sentence a technician can do. "why" is at most two sentences.
+        - "confidence" is "high", "medium" or "low". If the digest has an x line (conflicting
+          signals) for a chamber, that chamber's confidence must be "medium" or "low", never "high",
+          and "why" must say the signals conflict. "would_change_if" names one observable
+          thing, without numbers, that would change the ranking.
+        - Reply with ONLY this JSON object, no fence, no commentary:
+        {"checks":[{"rank":1,"tool":string,"chamber":string,"action":string,"why":string,"evidence":[string],"confidence":"high"|"medium"|"low","would_change_if":string}]}
+        """;
+
+    /// <summary>
+    /// Three checks as JSON do not fit in <see cref="TightOptions"/>' 200 tokens, and a
+    /// reasoning-style deployment spends part of the budget thinking. Still temperature 0, seed 42.
+    /// </summary>
+    public static readonly ChatOptions HandoverOptions = new()
+    {
+        MaxOutputTokens = 1200, Temperature = 0f, Seed = 42, ResponseFormat = ChatResponseFormat.Json,
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Deterministic parsing. A 1.5B model WILL occasionally emit a markdown

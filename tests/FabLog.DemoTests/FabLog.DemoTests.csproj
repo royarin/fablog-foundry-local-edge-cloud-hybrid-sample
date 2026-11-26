@@ -34,6 +34,8 @@
   <ItemGroup>
     <None Include="..\..\src\FabLog.TrustHub\Data\hub-notes.json"
           Link="Data\hub-notes.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\FabLog.TrustHub\Data\handover-context.json"
+          Link="Data\handover-context.json" CopyToOutputDirectory="PreserveNewest" />
 
     <!--
       The hub's config, linked so the Category=Live test reads the SAME file the

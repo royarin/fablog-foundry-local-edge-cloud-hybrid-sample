@@ -40,6 +40,21 @@ builder.Services.AddSingleton(new HubStore(seedPath, shiftSeedToToday: true));
 builder.Services.AddSingleton(sp => new HubBrain(
     sp.GetRequiredService<HubStore>(), Cloud.Create(t3), t3.Deployment));
 
+// ── Shift handover brief (additive, default off) ─────────────────────────────
+// Registered either way so FabDesk can inject it; every entry point checks
+// Hub:Features:ShiftHandover. Its own cloud client: a ~400-token JSON answer needs
+// more than the short-reply timeout the fleet question runs on.
+var features = builder.Configuration.GetSection("Hub:Features").Get<HubFeatures>() ?? new HubFeatures();
+var handoverT3 = new T3Options
+{
+    Provider = t3.Provider, Endpoint = t3.Endpoint, Deployment = t3.Deployment, ApiKey = t3.ApiKey,
+    TimeoutSeconds = Math.Max(t3.TimeoutSeconds, 25),
+};
+var handoverContext = HandoverContext.Load(Path.Combine(AppContext.BaseDirectory, "Data", "handover-context.json"));
+builder.Services.AddSingleton(features);
+builder.Services.AddSingleton(sp => new HandoverBrain(
+    sp.GetRequiredService<HubStore>(), handoverContext, Cloud.Create(handoverT3), t3.Deployment, features));
+
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 // ⚠️ https, and this line is the single source of truth for the URL — it
@@ -104,10 +119,17 @@ app.MapPost("/query", async (QueryRequest req, HubBrain brain, CancellationToken
     return result.Failed ? Results.Problem(result.Error, statusCode: 503) : Results.Ok(result);
 });
 
+// ── POST /handover ───────────────────────────────────────────────────────────
+// "What should the next shift check first, and why?" Mapped only when
+// Hub:Features:ShiftHandover is on; off, the route does not exist (404).
+if (features.ShiftHandover)
+    app.MapPost("/handover", async (HandoverBrain brain, CancellationToken ct) =>
+        Results.Ok(await brain.BriefAsync(ct)));
+
 app.MapGet("/notes", (HubStore s) => Results.Ok(s.All));
 
 // Back to the seed corpus alone — 12 notes and two complaints — in one call.
-app.MapPost("/reset", (HubStore s) => { s.Reset(); return Results.Ok(new { notes = s.Count }); });
+app.MapPost("/reset", (HubStore s, HandoverBrain h) => { s.Reset(); h.Reset(); return Results.Ok(new { notes = s.Count }); });
 
 // 💻 FabDesk — the supervisor's screen: a different person, in a different zone.
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();

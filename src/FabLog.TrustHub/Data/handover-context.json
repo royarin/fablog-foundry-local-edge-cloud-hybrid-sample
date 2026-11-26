@@ -1,0 +1,15 @@
+{
+  "_comment": "Fictional. Per-chamber context for the shift handover brief. Offsets are relative (days ago / shift means oldest->newest), so nothing here goes stale. These values stay inside the hub; only derived signals (drift in sigma, trend, PM state, lot counts) are ever sent to the cloud.",
+  "chambers": [
+    { "tool": "ETCH-01", "chamber": "A", "metric": "particle count", "baselineMean": 12.0, "sigma": 2.0, "worseWhen": "high",
+      "shiftMeans": [12.0, 11.0, 12.0], "lastPmDaysAgo": 10, "pmIntervalDays": 60, "lastCleanDaysAgo": 3, "lotsNextShift": 5 },
+    { "tool": "ETCH-02", "chamber": "A", "metric": "vacuum", "baselineMean": 2.0, "sigma": 0.15, "worseWhen": "high",
+      "shiftMeans": [2.1, 2.2, 2.4], "lastPmDaysAgo": 49, "pmIntervalDays": 42, "lastCleanDaysAgo": null, "lotsNextShift": 6 },
+    { "tool": "ETCH-03", "chamber": "B", "metric": "uniformity", "baselineMean": 96.5, "sigma": 0.6, "worseWhen": "low",
+      "shiftMeans": [95.6, 94.8, 94.5], "lastPmDaysAgo": 21, "pmIntervalDays": 60, "lastCleanDaysAgo": 6, "lotsNextShift": 9 },
+    { "tool": "ETCH-05", "chamber": "C", "metric": "throughput", "baselineMean": 100.0, "sigma": 3.0, "worseWhen": "low",
+      "shiftMeans": [98.0, 96.5, 94.0], "lastPmDaysAgo": 27, "pmIntervalDays": 60, "lastCleanDaysAgo": 1, "lotsNextShift": 4 },
+    { "tool": "LITHO-01", "chamber": "A", "metric": "overlay", "baselineMean": 3.0, "sigma": 0.3, "worseWhen": "high",
+      "shiftMeans": [3.8, 3.7, 3.8], "lastPmDaysAgo": 14, "pmIntervalDays": 30, "lastCleanDaysAgo": null, "lotsNextShift": 7 }
+  ]
+}
