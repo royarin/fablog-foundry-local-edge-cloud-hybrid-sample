@@ -39,8 +39,26 @@ public static partial class Redaction
     [GeneratedRegex(@"\bR[A-Z]-\d+\b")]
     private static partial Regex RecipeId();
 
-    [GeneratedRegex(@"\b\d+(?:\.\d+)?\s?(?:s|ms|sccm|mTorr|Torr|°?C|kW|W|nm)\b")]
+    // "seconds"/"minutes" matter: the cleanup step rewrites "4.5s" as "4.5 seconds",
+    // so the spelled-out form is what actually reaches the detector.
+    // Units are case-insensitive ("0.8 torr", "300 watts"); the technician types
+    // however they type. Alternation order puts longer units first.
+    [GeneratedRegex(@"\b\d+(?:\.\d+)?\s?(?:seconds?|secs?|minutes?|mins?|ms|s|sccm|slm|mTorr|Torr|watts?|kW|W|°?C|nm|pct)\b",
+        RegexOptions.IgnoreCase)]
     private static partial Regex RampParam();
+
+    // "chmbr A", "chamber B", "ch C": a location, not IP (see ToolId note above).
+    [GeneratedRegex(@"^(?:chmbr|chmb|chamber|ch)\.?\s*[A-Za-z]$", RegexOptions.IgnoreCase)]
+    private static partial Regex ChamberRef();
+
+    // Case-insensitive tool-ID shape (etch06, ETCH-03) used only to veto model spans.
+    [GeneratedRegex(@"\b[A-Za-z]{3,6}-?\d{2,3}\b")]
+    private static partial Regex LooseToolId();
+
+    // A model span is a value, not a clause. Anything longer is a sentence the
+    // 1.5B mistook for IP; masking it would hide the note from the cloud.
+    const int MaxModelSpanWords = 4;
+    const int MaxModelSpanChars = 32;
 
     [GeneratedRegex(@"\b\d+(?:\.\d+)?\s?%")]
     private static partial Regex YieldFigure();
@@ -94,11 +112,19 @@ public static partial class Redaction
             var trimmed = candidate.Trim();
             if (trimmed.Length < 2 || !text.Contains(trimmed, StringComparison.OrdinalIgnoreCase)) continue;
             if (ToolId().IsMatch(trimmed) && !RecipeId().IsMatch(trimmed)) continue;   // tool IDs stay
+            if (IsClauseNotValue(trimmed, spans)) continue;
 
             var existing = spans.FindIndex(s => s.Text.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
             if (existing >= 0) spans[existing] = spans[existing] with { Source = "rules+model" };
             else spans.Add(new IpSpan(trimmed, "", "model-flagged", "model"));
         }
+
+        // Drop any span wholly inside another: Mask replaces longest-first, so the
+        // inner one would never appear in the payload yet still be counted as
+        // "held back" — a number the demo then cannot explain.
+        spans = [.. spans.Where(s => !spans.Any(o =>
+            !ReferenceEquals(o, s) && o.Text.Length > s.Text.Length &&
+            o.Text.Contains(s.Text, StringComparison.OrdinalIgnoreCase)))];
 
         // Number the placeholders by first appearance so ⟦R1⟧ is stable across
         // re-processing: the same note must produce the same placeholders every
@@ -106,6 +132,20 @@ public static partial class Redaction
         return [.. spans
             .OrderBy(s => text.IndexOf(s.Text, StringComparison.OrdinalIgnoreCase))
             .Select((s, i) => s with { Placeholder = $"⟦R{i + 1}⟧" })];
+    }
+
+    /// <summary>
+    /// True when a model-proposed span is a sentence fragment rather than a value:
+    /// too long, swallows a rule-detected value, or swallows a tool ID.
+    /// </summary>
+    static bool IsClauseNotValue(string candidate, List<IpSpan> ruleSpans)
+    {
+        if (ChamberRef().IsMatch(candidate)) return true;   // chamber letters stay
+        if (candidate.Length > MaxModelSpanChars) return true;
+        if (candidate.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > MaxModelSpanWords) return true;
+        if (LooseToolId().Matches(candidate).Any(m => !RecipeId().IsMatch(m.Value))) return true;
+        return ruleSpans.Any(s => s.Source == "rules" && s.Text.Length < candidate.Length &&
+            candidate.Contains(s.Text, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Replace every detected span with its placeholder. The mapping never leaves the device.</summary>

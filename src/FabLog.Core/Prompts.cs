@@ -65,6 +65,8 @@ public static class Prompts
         uniformity figures, defect signature codes.
         NOT proprietary: tool IDs (ETCH-03), chamber letters, dates, shift names, people.
         Reply with ONLY a JSON array of the exact substrings, copied verbatim from the note.
+        Each item is just the value (1-3 words), never a sentence or clause that contains it.
+        Right: "4.5 seconds". Wrong: "ramp time of 4.5 seconds on chamber B".
         Example: ["RX-7","4.5s","94.2%"]
         If there are none reply [].
         """;
